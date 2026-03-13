@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { Bot } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { login, clearError, checkSetupStatus } from '@/store/auth.slice';
@@ -12,7 +12,6 @@ import { Badge } from '@/components/ui/badge';
 
 export function LoginPage() {
   const dispatch = useAppDispatch();
-  const navigate = useNavigate();
   const { accessToken, user, needsSetup, loading, error } = useAppSelector((s) => s.auth);
 
   const [email, setEmail] = useState('');
@@ -28,11 +27,11 @@ export function LoginPage() {
     return () => { dispatch(clearError()); };
   }, [dispatch]);
 
-  useEffect(() => {
-    if (accessToken && user) {
-      navigate('/app', { replace: true });
-    }
-  }, [accessToken, user, navigate]);
+  // Already logged in — go to app
+  if (accessToken && user) {
+    const target = user.onboardingCompleted ? '/app' : '/app/onboarding';
+    return <Navigate to={target} replace />;
+  }
 
   // Still checking setup status — don't flash login form
   if (needsSetup === null) {
@@ -43,8 +42,8 @@ export function LoginPage() {
     );
   }
 
-  // First-time setup: redirect to register
-  if (needsSetup) {
+  // First-time setup: redirect to register (only if not already logged in)
+  if (needsSetup && !accessToken) {
     return <Navigate to="/app/auth/register" replace />;
   }
 

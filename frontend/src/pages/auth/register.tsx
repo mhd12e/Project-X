@@ -38,8 +38,8 @@ export function RegisterPage() {
     return () => clearTimeout(timer);
   }, [accessToken, user, navigate]);
 
-  // Registration disabled once a user exists
-  if (needsSetup === false) {
+  // Registration disabled once a user exists (unless we just registered and are fading out)
+  if (needsSetup === false && !accessToken) {
     return <Navigate to="/app/auth/login" replace />;
   }
 
