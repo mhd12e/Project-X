@@ -6,8 +6,8 @@ import {
   createSdkMcpServer,
 } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod/v4';
-import * as fs from 'fs';
 import * as path from 'path';
+import * as fs from 'fs';
 import { KnowledgeService } from './knowledge.service';
 import { KnowledgeDocument, DocumentStatus } from './knowledge-document.entity';
 import { KNOWLEDGE_AGENT_SYSTEM_PROMPT } from './knowledge-agent.prompt';
@@ -19,8 +19,6 @@ import { ActivityCategory, ActivityLevel } from '../activity/activity-log.entity
 import { AgentContextService } from '../common/agent-context.service';
 
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-
-const SESSION_FILE = '/app/uploads/.knowledge-session-id';
 
 @Injectable()
 export class KnowledgeAgentService {
@@ -121,13 +119,21 @@ export class KnowledgeAgentService {
       }
 
       const mcpServer = this.createMcpServer(document.id);
-      const buildOptions = (
-        useSession: boolean,
-      ): Record<string, unknown> => {
-        // For images, the agent needs the Read tool to view the image file
-        const tools = isImage ? ['Read'] : ([] as string[]);
+      // For images, the agent needs the Read tool to view the image file
+      const tools = isImage ? ['Read'] : ([] as string[]);
 
-        const opts: Record<string, unknown> = {
+      this.emit(
+        document.id,
+        'status',
+        isImage ? 'Agent started, analyzing image' : 'Agent started, analyzing document',
+      );
+
+      let resultText = '';
+
+      // Each document is a one-shot task — no session persistence needed
+      for await (const message of query({
+        prompt,
+        options: {
           systemPrompt: KNOWLEDGE_AGENT_SYSTEM_PROMPT,
           model: this.configService.get<string>(
             'CLAUDE_MODEL',
@@ -137,61 +143,16 @@ export class KnowledgeAgentService {
           mcpServers: { knowledge: mcpServer },
           permissionMode: 'bypassPermissions' as const,
           allowDangerouslySkipPermissions: true,
+          persistSession: false,
           cwd: '/app/uploads',
           maxTurns: 30,
-        };
-        if (useSession) {
-          const sessionId = this.loadSessionId();
-          if (sessionId) {
-            opts.resume = sessionId;
-          }
+        } as Parameters<typeof query>[0]['options'],
+      })) {
+        this.handleStreamMessage(document.id, message);
+
+        if ('result' in message) {
+          resultText = message.result as string;
         }
-        return opts;
-      };
-
-      let newSessionId: string | undefined;
-      let resultText = '';
-
-      const runQuery = async (useSession: boolean) => {
-        const options = buildOptions(useSession);
-        this.emit(
-          document.id,
-          'status',
-          isImage ? 'Agent started, analyzing image' : 'Agent started, analyzing document',
-        );
-
-        for await (const message of query({
-          prompt,
-          options: options as Parameters<typeof query>[0]['options'],
-        })) {
-          this.handleStreamMessage(document.id, message);
-
-          if (
-            message.type === 'system' &&
-            message.subtype === 'init' &&
-            'session_id' in message
-          ) {
-            newSessionId = message.session_id as string;
-          }
-
-          if ('result' in message) {
-            resultText = message.result as string;
-          }
-        }
-      };
-
-      try {
-        await runQuery(true);
-      } catch (resumeError) {
-        this.logger.warn(
-          `Session resume failed, retrying fresh: ${resumeError}`,
-        );
-        this.clearSessionId();
-        await runQuery(false);
-      }
-
-      if (newSessionId) {
-        this.saveSessionId(newSessionId);
       }
 
       // RAG ingestion — embed chunks and store in Qdrant
@@ -511,39 +472,6 @@ export class KnowledgeAgentService {
       name: 'knowledge-store',
       tools: [storeChunk, updateMetadata, generateTitle, listDocuments, searchKnowledge, getDocumentInfo],
     });
-  }
-
-  private loadSessionId(): string | undefined {
-    try {
-      if (fs.existsSync(SESSION_FILE)) {
-        return fs.readFileSync(SESSION_FILE, 'utf-8').trim();
-      }
-    } catch {
-      // Ignore — start fresh
-    }
-    return undefined;
-  }
-
-  private clearSessionId(): void {
-    try {
-      if (fs.existsSync(SESSION_FILE)) {
-        fs.unlinkSync(SESSION_FILE);
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  private saveSessionId(sessionId: string): void {
-    try {
-      const dir = path.dirname(SESSION_FILE);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(SESSION_FILE, sessionId, 'utf-8');
-    } catch (error) {
-      this.logger.warn(`Failed to save session ID: ${error}`);
-    }
   }
 
   private async extractFileContent(
