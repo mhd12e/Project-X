@@ -10,6 +10,7 @@ export interface AgentActivity {
 }
 
 const MAX_EVENTS_PER_DOC = 200;
+const STORAGE_KEY = 'knowledge_activity';
 
 // ---- singleton store (lives outside React) ----
 
@@ -19,6 +20,31 @@ const eventsByDoc = new Map<string, AgentActivity[]>();
 const listeners = new Set<Listener>();
 let socket: Socket | null = null;
 let refCount = 0;
+
+// Restore persisted events on module load
+try {
+  const raw = sessionStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw) as Record<string, AgentActivity[]>;
+    for (const [docId, events] of Object.entries(parsed)) {
+      eventsByDoc.set(docId, events);
+    }
+  }
+} catch {
+  // ignore corrupted storage
+}
+
+function persist() {
+  try {
+    const obj: Record<string, AgentActivity[]> = {};
+    for (const [docId, events] of eventsByDoc) {
+      obj[docId] = events;
+    }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  } catch {
+    // storage full or unavailable
+  }
+}
 
 function notify() {
   for (const fn of listeners) fn();
@@ -32,6 +58,7 @@ function handleActivity(activity: AgentActivity) {
     docId,
     next.length > MAX_EVENTS_PER_DOC ? next.slice(-MAX_EVENTS_PER_DOC) : next,
   );
+  persist();
   notify();
 }
 
@@ -62,6 +89,12 @@ function getSnapshot(): Map<string, AgentActivity[]> {
 
 // ---- React hook ----
 
+/**
+ * Subscribe to real-time agent activity events via WebSocket.
+ *
+ * @param documentId - If provided, returns events for that single document.
+ *   If omitted, returns ALL events across all documents (flattened).
+ */
 export function useKnowledgeActivity(documentId?: string) {
   // ref-count the socket connection
   useEffect(() => {
@@ -75,14 +108,38 @@ export function useKnowledgeActivity(documentId?: string) {
 
   const store = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const events = documentId ? store.get(documentId) ?? [] : [];
+  let events: AgentActivity[];
+  if (documentId) {
+    events = store.get(documentId) ?? [];
+  } else {
+    // Return all events across all documents, sorted by timestamp
+    const all: AgentActivity[] = [];
+    for (const list of store.values()) {
+      all.push(...list);
+    }
+    all.sort((a, b) => a.timestamp - b.timestamp);
+    events = all;
+  }
 
   const clear = useCallback(() => {
     if (documentId) {
       eventsByDoc.delete(documentId);
+      persist();
       notify();
     }
   }, [documentId]);
 
   return { events, clear };
+}
+
+/**
+ * Clear persisted activity events for specific document IDs.
+ * Call this after processing is done so events don't linger.
+ */
+export function clearActivityForDocuments(docIds: string[]) {
+  for (const id of docIds) {
+    eventsByDoc.delete(id);
+  }
+  persist();
+  notify();
 }

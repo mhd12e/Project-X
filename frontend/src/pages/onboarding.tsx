@@ -47,6 +47,7 @@ import { setOnboardingCompleted, fetchMe } from '@/store/auth.slice';
 import { useTheme, type Theme } from '@/hooks/use-theme';
 import {
   useKnowledgeActivity,
+  clearActivityForDocuments,
   type AgentActivity,
 } from '@/hooks/use-knowledge-activity';
 import api from '@/lib/api';
@@ -578,6 +579,7 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessing
         if (allDone) {
           setUploadPhase('done');
           clearInterval(interval);
+          clearActivityForDocuments(processingDocIds);
           onProcessingDone?.();
         }
       } catch {

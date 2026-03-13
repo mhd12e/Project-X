@@ -62,6 +62,7 @@ import {
 } from '@/store/knowledge.slice';
 import {
   useKnowledgeActivity,
+  clearActivityForDocuments,
   type AgentActivity,
 } from '@/hooks/use-knowledge-activity';
 
@@ -499,6 +500,16 @@ function DocumentDetail() {
         </div>
       </div>
 
+      {(doc.status === 'processing' || doc.status === 'pending') && (
+        <div className="flex flex-col gap-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Activity className="h-4 w-4 animate-pulse text-blue-500" />
+            Agent Activity
+          </h3>
+          <ActivityFeed documentId={doc.id} />
+        </div>
+      )}
+
       {doc.summary && (
         <Card>
           <CardContent className="pt-6">
@@ -558,16 +569,6 @@ function DocumentDetail() {
           ))}
         </div>
       )}
-
-      {(doc.status === 'processing' || doc.status === 'pending') && (
-        <div className="flex flex-col gap-2">
-          <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <Activity className="h-4 w-4 animate-pulse text-blue-500" />
-            Agent Activity
-          </h3>
-          <ActivityFeed documentId={doc.id} />
-        </div>
-      )}
     </div>
   );
 }
@@ -606,6 +607,29 @@ export function KnowledgePage() {
     }, 5000);
     return () => clearInterval(interval);
   }, [documents, dispatch]);
+
+  // Clear persisted activity events when documents finish processing
+  const prevDocsRef = useRef(documents);
+  useEffect(() => {
+    const prev = prevDocsRef.current;
+    prevDocsRef.current = documents;
+    const finishedIds = documents
+      .filter((d) => {
+        const wasPending = prev.find(
+          (p) =>
+            p.id === d.id &&
+            (p.status === 'pending' || p.status === 'processing'),
+        );
+        return (
+          wasPending &&
+          (d.status === 'completed' || d.status === 'failed')
+        );
+      })
+      .map((d) => d.id);
+    if (finishedIds.length > 0) {
+      clearActivityForDocuments(finishedIds);
+    }
+  }, [documents]);
 
   if (documentId) {
     return (
