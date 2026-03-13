@@ -1,0 +1,14 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { OnboardingAnswer } from './onboarding-answer.entity';
+import { OnboardingController } from './onboarding.controller';
+import { OnboardingService } from './onboarding.service';
+import { UsersModule } from '../users/users.module';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([OnboardingAnswer]), UsersModule],
+  controllers: [OnboardingController],
+  providers: [OnboardingService],
+  exports: [OnboardingService],
+})
+export class OnboardingModule {}

@@ -1,0 +1,30 @@
+/**
+ * Modular onboarding step definitions.
+ *
+ * To add a new step:
+ *   1. Add an entry to this array with a unique `id`
+ *   2. Add a matching step component in the frontend onboarding page
+ *
+ * Steps are presented to the user in array order.
+ */
+export interface OnboardingStepDefinition {
+  /** Unique identifier for this step (used in API + storage) */
+  id: string;
+  /** Human-readable title */
+  title: string;
+  /** Short description shown to the user */
+  description: string;
+}
+
+export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
+  {
+    id: 'business_context',
+    title: 'About your business',
+    description: 'Help us understand your business so the AI can provide better insights.',
+  },
+  {
+    id: 'usage_goals',
+    title: 'Your goals',
+    description: 'Tell us what you want to achieve with Project X.',
+  },
+];
