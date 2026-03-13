@@ -680,19 +680,27 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessing
         <div className="space-y-1.5">
           {files.map((file) => {
             const status = docStatuses[file.id] ?? 'pending';
+            const isDone = status === 'completed';
+            const isFailed = status === 'failed';
             return (
               <div
                 key={file.id}
-                className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm"
+                className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors duration-300 ${
+                  isDone
+                    ? 'border-primary/30 bg-primary/5'
+                    : isFailed
+                      ? 'border-destructive/30 bg-destructive/5'
+                      : ''
+                }`}
               >
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <FileText className={`h-4 w-4 shrink-0 ${isDone ? 'text-primary' : 'text-muted-foreground'}`} />
                 <span className="min-w-0 flex-1 truncate">{file.originalName}</span>
-                {status === 'completed' ? (
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-                ) : status === 'failed' ? (
+                {isDone ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                ) : isFailed ? (
                   <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
                 ) : (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
                 )}
               </div>
             );
@@ -978,13 +986,14 @@ export function OnboardingPage() {
     if (currentStep.id === 'knowledge_upload') {
       const answer = answers[currentStep.id] ?? {};
       const documentIds = (answer.documentIds as string[]) ?? [];
+      const files = (answer.files as UploadedFile[]) ?? [];
 
       setSaving(true);
       try {
-        // Save the step answer — this also triggers processing on the backend
+        // Save the full answer (including files metadata for restore on refresh)
         const result = await api.post<OnboardingStatus>(
           `/onboarding/steps/${currentStep.id}`,
-          { answer: { documentIds } },
+          { answer: { documentIds, files } },
         );
         setStatus(result.data);
 
@@ -1265,7 +1274,7 @@ export function OnboardingPage() {
               <Button
                 size="sm"
                 onClick={handleNextOrFinish}
-                disabled={(!canProceed && !isKnowledgeStep) || saving}
+                disabled={!canProceed || saving || (isKnowledgeStep && knowledgeProcessing && !knowledgeProcessingDone)}
                 className="gap-1.5"
               >
                 {nextButtonLabel}

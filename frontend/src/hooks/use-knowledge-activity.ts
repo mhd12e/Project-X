@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, useCallback } from 'react';
+import { useEffect, useSyncExternalStore, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 export interface AgentActivity {
@@ -20,6 +20,10 @@ const eventsByDoc = new Map<string, AgentActivity[]>();
 const listeners = new Set<Listener>();
 let socket: Socket | null = null;
 let refCount = 0;
+
+// Version counter — incremented on every mutation so useSyncExternalStore
+// detects changes (Map identity never changes, but the version does).
+let version = 0;
 
 // Restore persisted events on module load
 try {
@@ -47,6 +51,7 @@ function persist() {
 }
 
 function notify() {
+  version++;
   for (const fn of listeners) fn();
 }
 
@@ -83,8 +88,8 @@ function subscribe(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-function getSnapshot(): Map<string, AgentActivity[]> {
-  return eventsByDoc;
+function getSnapshot(): number {
+  return version;
 }
 
 // ---- React hook ----
@@ -93,7 +98,7 @@ function getSnapshot(): Map<string, AgentActivity[]> {
  * Subscribe to real-time agent activity events via WebSocket.
  *
  * @param documentId - If provided, returns events for that single document.
- *   If omitted, returns ALL events across all documents (flattened).
+ *   If omitted, returns ALL events across all documents (flattened, sorted by timestamp).
  */
 export function useKnowledgeActivity(documentId?: string) {
   // ref-count the socket connection
@@ -106,20 +111,22 @@ export function useKnowledgeActivity(documentId?: string) {
     };
   }, []);
 
-  const store = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  // Subscribe to version changes — triggers re-render on every mutation
+  const v = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  let events: AgentActivity[];
-  if (documentId) {
-    events = store.get(documentId) ?? [];
-  } else {
+  const events = useMemo(() => {
+    if (documentId) {
+      return eventsByDoc.get(documentId) ?? [];
+    }
     // Return all events across all documents, sorted by timestamp
     const all: AgentActivity[] = [];
-    for (const list of store.values()) {
+    for (const list of eventsByDoc.values()) {
       all.push(...list);
     }
     all.sort((a, b) => a.timestamp - b.timestamp);
-    events = all;
-  }
+    return all;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, v]);
 
   const clear = useCallback(() => {
     if (documentId) {
