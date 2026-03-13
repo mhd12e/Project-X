@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAppSelector } from '@/store';
 import { useTheme } from '@/hooks/use-theme';
 import { Meta } from '@/components/shared/meta';
 import { Button } from '@/components/ui/button';
@@ -45,9 +47,15 @@ function ComparisonRow({ feature, traditional, projectX }: { feature: string; tr
 }
 
 export function HomePage(): React.ReactElement {
+  const { accessToken } = useAppSelector((s) => s.auth);
   const { resolved: theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('marketing');
   const [email, setEmail] = useState('');
+
+  // Logged-in users go straight to the dashboard
+  if (accessToken) {
+    return <Navigate to="/app" replace />;
+  }
 
   const agents: Record<string, { title: string; items: string[]; icon: React.ElementType; desc: string }> = {
     marketing: {
