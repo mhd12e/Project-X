@@ -13,8 +13,10 @@ import { KnowledgeDocument, DocumentStatus } from './knowledge-document.entity';
 import { KNOWLEDGE_AGENT_SYSTEM_PROMPT } from './knowledge-agent.prompt';
 import { KnowledgeGateway } from './knowledge.gateway';
 import { RagIngestionService } from '../retrieval/rag-ingestion.service';
+import { RetrievalService } from '../retrieval/retrieval.service';
 import { ActivityLogService } from '../activity/activity-log.service';
 import { ActivityCategory, ActivityLevel } from '../activity/activity-log.entity';
+import { AgentContextService } from '../common/agent-context.service';
 
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
 
@@ -29,7 +31,9 @@ export class KnowledgeAgentService {
     private readonly configService: ConfigService,
     private readonly gateway: KnowledgeGateway,
     private readonly ragIngestion: RagIngestionService,
+    private readonly retrievalService: RetrievalService,
     private readonly activityLog: ActivityLogService,
+    private readonly agentContext: AgentContextService,
   ) {}
 
   private emit(
@@ -47,7 +51,7 @@ export class KnowledgeAgentService {
     });
   }
 
-  async processDocument(document: KnowledgeDocument): Promise<void> {
+  async processDocument(document: KnowledgeDocument, userId?: string): Promise<void> {
     this.logger.log(
       `Processing document: ${document.title ?? document.id} (${document.id})`,
     );
@@ -68,6 +72,14 @@ export class KnowledgeAgentService {
 
     try {
       const isImage = IMAGE_MIME_TYPES.includes(document.mimeType);
+
+      // Resolve userId from the document's uploader if not provided
+      const resolvedUserId = userId ?? document.uploadedBy?.id;
+
+      // Build user context from profile + onboarding answers
+      const userContext = resolvedUserId
+        ? await this.agentContext.getContextBlock(resolvedUserId)
+        : '';
 
       let fileContent: string | null = null;
 
@@ -96,15 +108,16 @@ export class KnowledgeAgentService {
       const knowledgeSummary =
         await this.knowledgeService.getKnowledgeSummary();
 
+      // Build prompt with user context prepended
+      const contextPrefix = userContext ? `${userContext}\n\n---\n\n` : '';
+
       let prompt: string;
 
       if (isImage) {
-        // For images: tell the agent to read the image file using the Read tool
-        // The Agent SDK's Read tool natively supports images (vision)
         const absPath = path.resolve(document.filePath);
-        prompt = `${knowledgeSummary}\n\n---\n\nProcess this new document:\n\nType: ${document.mimeType}\nDocument ID: ${document.id}\n\nThis is an IMAGE file. First, use the Read tool to read the image at: ${absPath}\n\nAfter viewing the image, extract ALL information from it:\n- If it contains text (scan, screenshot, whiteboard): extract ALL readable text preserving structure\n- If it contains charts/graphs/diagrams: describe the visualization type, extract data points/labels/values, summarize insights\n- If it contains tables: reproduce the data in structured text\n- If it's a photo/illustration: describe it in detail with any business context\n\nUse content_type "image_text" for OCR/extracted text, or "diagram_text" for chart/diagram/graph insights.\nPreserve all extracted data faithfully. Process ALL visible content.`;
+        prompt = `${contextPrefix}${knowledgeSummary}\n\n---\n\nProcess this new document:\n\nType: ${document.mimeType}\nDocument ID: ${document.id}\n\nThis is an IMAGE file. First, use the Read tool to read the image at: ${absPath}\n\nAfter viewing the image, extract ALL information from it:\n- If it contains text (scan, screenshot, whiteboard): extract ALL readable text preserving structure\n- If it contains charts/graphs/diagrams: describe the visualization type, extract data points/labels/values, summarize insights\n- If it contains tables: reproduce the data in structured text\n- If it's a photo/illustration: describe it in detail with any business context\n\nUse content_type "image_text" for OCR/extracted text, or "diagram_text" for chart/diagram/graph insights.\nPreserve all extracted data faithfully. Process ALL visible content.`;
       } else {
-        prompt = `${knowledgeSummary}\n\n---\n\nProcess this new document:\n\nType: ${document.mimeType}\nDocument ID: ${document.id}\n\nContent:\n${fileContent}`;
+        prompt = `${contextPrefix}${knowledgeSummary}\n\n---\n\nProcess this new document:\n\nType: ${document.mimeType}\nDocument ID: ${document.id}\n\nContent:\n${fileContent}`;
       }
 
       const mcpServer = this.createMcpServer(document.id);
@@ -272,6 +285,12 @@ export class KnowledgeAgentService {
             detail = `Topics: ${(input?.topics as string[])?.length ?? 0}`;
           } else if (toolName === 'generate_title') {
             detail = `"${input?.title ?? '?'}"`;
+          } else if (toolName === 'search_knowledge') {
+            detail = `Query: "${input?.query ?? '?'}"`;
+          } else if (toolName === 'get_document_info') {
+            detail = `Document: ${input?.document_id ?? '?'}`;
+          } else if (toolName === 'list_documents') {
+            detail = 'Listing all documents';
           } else if (toolName === 'Read') {
             detail = `Reading: ${input?.file_path ?? '?'}`;
           }
@@ -410,9 +429,9 @@ export class KnowledgeAgentService {
       },
     );
 
-    const getExisting = tool(
-      'get_existing_knowledge',
-      'Get a summary of all existing documents and topics in the knowledge base.',
+    const listDocuments = tool(
+      'list_documents',
+      'List all documents in the knowledge base with their summaries and topics.',
       {},
       async () => {
         const summary = await knowledgeService.getKnowledgeSummary();
@@ -423,9 +442,74 @@ export class KnowledgeAgentService {
       },
     );
 
+    const retrievalService = this.retrievalService;
+
+    const searchKnowledge = tool(
+      'search_knowledge',
+      'Search the knowledge base for information relevant to understanding the current document. Use this when the document references concepts, data, or context from previously processed documents.',
+      {
+        query: z.string().describe('The search query — phrase it as the core question or topic.'),
+        limit: z.number().optional().describe('Max results to return (default 8).'),
+        topic: z.string().optional().describe('Filter by topic if known.'),
+      },
+      async (args) => {
+        const results = await retrievalService.search(args.query, {
+          limit: args.limit ?? 8,
+          topic: args.topic,
+          scoreThreshold: 0.25,
+        });
+
+        if (results.length === 0) {
+          emitFn(documentId, 'status', 'Searched knowledge base — no matches');
+          return {
+            content: [{ type: 'text' as const, text: 'No relevant knowledge found in the database.' }],
+          };
+        }
+
+        const formatted = results
+          .map(
+            (r, i) =>
+              `[Source ${i + 1}] Document: "${r.payload.source_file}" | Section: ${r.payload.section_name} | Topic: ${r.payload.topic} | Score: ${r.score.toFixed(2)}\n${r.payload.chunk_text}`,
+          )
+          .join('\n\n---\n\n');
+
+        emitFn(documentId, 'status', `Found ${results.length} related chunks`, args.query);
+        return {
+          content: [{ type: 'text' as const, text: `Found ${results.length} relevant results:\n\n${formatted}` }],
+        };
+      },
+    );
+
+    const getDocumentInfo = tool(
+      'get_document_info',
+      'Get detailed information about a specific document including its summary, topics, and chunks. Use when you need to understand a referenced document in depth.',
+      {
+        document_id: z.string().describe('The UUID of the document to look up.'),
+      },
+      async (args) => {
+        const doc = await knowledgeService.findDocumentById(args.document_id);
+        if (!doc) {
+          return { content: [{ type: 'text' as const, text: 'Document not found.' }] };
+        }
+
+        const info = [
+          `Title: ${doc.title ?? doc.filename}`,
+          `File: ${doc.filename}`,
+          `Type: ${doc.mimeType}`,
+          `Status: ${doc.status}`,
+          `Summary: ${doc.summary ?? 'No summary available'}`,
+          `Topics: ${(doc.topics ?? []).join(', ') || 'None'}`,
+          `Chunks: ${doc.chunks?.length ?? 0}`,
+        ].join('\n');
+
+        emitFn(documentId, 'status', `Retrieved info for "${doc.title ?? doc.filename}"`);
+        return { content: [{ type: 'text' as const, text: info }] };
+      },
+    );
+
     return createSdkMcpServer({
       name: 'knowledge-store',
-      tools: [storeChunk, updateMetadata, generateTitle, getExisting],
+      tools: [storeChunk, updateMetadata, generateTitle, listDocuments, searchKnowledge, getDocumentInfo],
     });
   }
 

@@ -111,7 +111,7 @@ export class OnboardingService {
         continue;
       }
       try {
-        await this.knowledgeAgentService.processDocument(doc);
+        await this.knowledgeAgentService.processDocument(doc, userId);
       } catch (error) {
         this.logger.error(
           `Onboarding: failed to process document ${docId}: ${error}`,

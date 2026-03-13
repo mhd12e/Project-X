@@ -15,9 +15,6 @@ import {
   EyeOff,
   Loader2,
   AlertTriangle,
-  Building2,
-  Target,
-  FileText,
 } from 'lucide-react';
 import { useTheme, type Theme } from '@/hooks/use-theme';
 import { useAppSelector, useAppDispatch } from '@/store';
@@ -30,6 +27,10 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import {
+  BusinessContextFields,
+  UsageGoalsFields,
+} from '@/components/shared/business-preferences';
 import {
   Dialog,
   DialogContent,
@@ -165,6 +166,168 @@ function ProfileField({
         <p className="text-sm font-medium truncate">{value}</p>
       </div>
     </div>
+  );
+}
+
+// ---- Business Preferences (editable) ----
+
+function BusinessPreferencesCard({
+  answers,
+  onSaved,
+}: {
+  answers: Record<string, Record<string, unknown>>;
+  onSaved: (updated: Record<string, Record<string, unknown>>) => void;
+}) {
+  const [editing, setEditing] = useState<'business_context' | 'usage_goals' | null>(null);
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [draftValid, setDraftValid] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = (section: 'business_context' | 'usage_goals') => {
+    setDraft(answers[section] ?? {});
+    setDraftValid(true);
+    setEditing(section);
+  };
+
+  const cancel = () => {
+    setEditing(null);
+    setDraft({});
+  };
+
+  const save = async () => {
+    if (!editing || !draftValid) return;
+    setSaving(true);
+    try {
+      await api.post(`/onboarding/steps/${editing}`, { answer: draft });
+      onSaved({ ...answers, [editing]: draft });
+      setEditing(null);
+      setDraft({});
+      toast.success('Preferences updated');
+    } catch {
+      toast.error('Failed to save preferences');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChange = useCallback((answer: Record<string, unknown>, valid: boolean) => {
+    setDraft(answer);
+    setDraftValid(valid);
+  }, []);
+
+  const bc = answers.business_context;
+  const goals = answers.usage_goals;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Business Preferences</CardTitle>
+        <CardDescription>Your business context and goals — used by the AI for better insights.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Business Context */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Business Context</p>
+            {editing !== 'business_context' && (
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => startEdit('business_context')}>
+                <Pencil className="h-3 w-3" />
+                Edit
+              </Button>
+            )}
+          </div>
+
+          {editing === 'business_context' ? (
+            <div className="space-y-4 rounded-lg border p-4">
+              <BusinessContextFields
+                initialAnswer={draft}
+                onChange={handleChange}
+                compact
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={save} disabled={!draftValid || saving} className="gap-1.5">
+                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                  Save
+                </Button>
+              </div>
+            </div>
+          ) : bc ? (
+            <div className="grid gap-2 rounded-lg border p-3 text-sm sm:grid-cols-2">
+              {String(bc.companyName ?? '') && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Company</p>
+                  <p className="font-medium">{String(bc.companyName)}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground">Industry</p>
+                <p className="font-medium">
+                  {bc.industry === 'Other'
+                    ? String(bc.customIndustry ?? '') || 'Other'
+                    : String(bc.industry ?? '') || '—'}
+                </p>
+              </div>
+              {String(bc.description ?? '') && (
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">Description</p>
+                  <p>{String(bc.description)}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Not set yet.</p>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Goals */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Goals</p>
+            {editing !== 'usage_goals' && (
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => startEdit('usage_goals')}>
+                <Pencil className="h-3 w-3" />
+                Edit
+              </Button>
+            )}
+          </div>
+
+          {editing === 'usage_goals' ? (
+            <div className="space-y-4 rounded-lg border p-4">
+              <UsageGoalsFields
+                initialAnswer={draft}
+                onChange={handleChange}
+                compact
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={save} disabled={!draftValid || saving} className="gap-1.5">
+                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                  Save
+                </Button>
+              </div>
+            </div>
+          ) : goals ? (
+            <div className="flex flex-wrap gap-2">
+              {((goals.goals as string[]) ?? []).map((goal) => (
+                <Badge key={goal} variant="secondary">{goal}</Badge>
+              ))}
+              {String(goals.customGoal ?? '') && (
+                <Badge variant="outline">{String(goals.customGoal)}</Badge>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Not set yet.</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -427,90 +590,12 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* ---- Onboarding Preferences Card ---- */}
+        {/* ---- Business Preferences Card ---- */}
         {onboardingAnswers && Object.keys(onboardingAnswers).length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Business Preferences</CardTitle>
-              <CardDescription>Answers you provided during onboarding.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Business context */}
-              {onboardingAnswers.business_context && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    Business context
-                  </div>
-                  <div className="grid gap-2 rounded-lg border p-3 text-sm sm:grid-cols-2">
-                    {String(onboardingAnswers.business_context.companyName ?? '') && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Company</p>
-                        <p className="font-medium">{String(onboardingAnswers.business_context.companyName)}</p>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-xs text-muted-foreground">Industry</p>
-                      <p className="font-medium">
-                        {onboardingAnswers.business_context.industry === 'Other'
-                          ? (onboardingAnswers.business_context.customIndustry as string) || 'Other'
-                          : (onboardingAnswers.business_context.industry as string) || '—'}
-                      </p>
-                    </div>
-                    {String(onboardingAnswers.business_context.description ?? '') && (
-                      <div className="sm:col-span-2">
-                        <p className="text-xs text-muted-foreground">Description</p>
-                        <p>{String(onboardingAnswers.business_context.description)}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Goals */}
-              {onboardingAnswers.usage_goals && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Target className="h-4 w-4 text-muted-foreground" />
-                    Goals
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {((onboardingAnswers.usage_goals.goals as string[]) ?? []).map((goal) => (
-                      <Badge key={goal} variant="secondary">{goal}</Badge>
-                    ))}
-                    {String(onboardingAnswers.usage_goals.customGoal ?? '') && (
-                      <Badge variant="outline">{String(onboardingAnswers.usage_goals.customGoal)}</Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Uploaded documents */}
-              {onboardingAnswers.knowledge_upload &&
-                ((onboardingAnswers.knowledge_upload.files as Array<{ originalName: string; mimeType: string; fileSize: number }>) ?? []).length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    Uploaded documents
-                  </div>
-                  <div className="space-y-1.5">
-                    {((onboardingAnswers.knowledge_upload.files as Array<{ originalName: string; mimeType: string; fileSize: number }>) ?? []).map((file, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm"
-                      >
-                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate">{file.originalName}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {(file.fileSize / 1024).toFixed(0)} KB
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <BusinessPreferencesCard
+            answers={onboardingAnswers}
+            onSaved={setOnboardingAnswers}
+          />
         )}
 
         {/* ---- Account Card ---- */}

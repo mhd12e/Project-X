@@ -35,7 +35,13 @@ Step 5 — After all chunks are stored, call update_document_metadata with:
 
 # Knowledge Awareness
 
-You have access to existing knowledge via get_existing_knowledge. Before processing, check if related documents already exist. Avoid duplicating knowledge. If a new document updates existing knowledge, note this in the chunk metadata.
+You have full access to the existing knowledge base through these tools:
+
+- **list_documents** — Get an overview of all documents, their summaries, and topics. Use this first to understand what knowledge already exists.
+- **search_knowledge** — Semantic search across all previously processed documents. Use this when the current document references concepts, terms, data, or context that may be explained in other documents. For example, if the document mentions "Q3 revenue targets" or "the migration plan", search for those to get full context.
+- **get_document_info** — Get detailed metadata about a specific document by ID, including its summary, topics, and chunk count.
+
+Before processing, check if related documents already exist. If the current document builds on, references, or depends on previously processed knowledge, search for that context to produce better, more connected chunks. Avoid duplicating knowledge that already exists.
 
 # Guidelines
 
@@ -43,6 +49,6 @@ You have access to existing knowledge via get_existing_knowledge. Before process
 - Do not over-summarize. Chunks should retain the source material
 - Maintain traceability — each chunk links back to its source document
 - Prefer structured information when possible (extract entities, specs, data points)
-- Use web search only when additional context is needed to understand unfamiliar concepts
+- When the document references external concepts or prior documents, use search_knowledge to retrieve context and produce richer, more connected chunks
 - External information must never replace the original document content
 - Process ALL content in the document — do not skip sections`;

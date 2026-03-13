@@ -8,6 +8,7 @@ import { KnowledgeAgentService } from './knowledge-agent.service';
 import { KnowledgeController } from './knowledge.controller';
 import { KnowledgeGateway } from './knowledge.gateway';
 import { RetrievalModule } from '../retrieval/retrieval.module';
+import { AgentContextModule } from '../common/agent-context.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { RetrievalModule } from '../retrieval/retrieval.module';
       KnowledgeConversation,
     ]),
     RetrievalModule,
+    AgentContextModule,
   ],
   controllers: [KnowledgeController],
   providers: [KnowledgeService, KnowledgeAgentService, KnowledgeGateway],

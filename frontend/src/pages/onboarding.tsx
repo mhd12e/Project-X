@@ -4,8 +4,6 @@ import {
   Bot,
   ArrowRight,
   ArrowLeft,
-  Building2,
-  Target,
   Loader2,
   FileSearch,
   BrainCircuit,
@@ -30,18 +28,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Meta } from '@/components/shared/meta';
+import {
+  BusinessContextFields,
+  UsageGoalsFields,
+} from '@/components/shared/business-preferences';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { setOnboardingCompleted, fetchMe } from '@/store/auth.slice';
 import { useTheme, type Theme } from '@/hooks/use-theme';
@@ -88,6 +81,132 @@ function FadeIn({
     >
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Confetti canvas for the finishing celebration
+// ---------------------------------------------------------------------------
+
+function ConfettiCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const resize = () => {
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      ctx.scale(dpr, dpr);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Read the primary color from CSS
+    const style = getComputedStyle(document.documentElement);
+    const primaryHsl = style.getPropertyValue('--primary').trim();
+    const baseColors = [
+      `hsl(${primaryHsl})`,
+      `hsl(${primaryHsl} / 0.8)`,
+      `hsl(${primaryHsl} / 0.6)`,
+      `hsl(${primaryHsl} / 0.4)`,
+    ];
+    // Add complementary accent colors
+    const colors = [
+      ...baseColors,
+      '#fbbf24', // amber
+      '#f472b6', // pink
+      '#34d399', // emerald
+      '#60a5fa', // blue
+      '#a78bfa', // violet
+    ];
+
+    interface Particle {
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      w: number;
+      h: number;
+      color: string;
+      rotation: number;
+      rotationSpeed: number;
+      opacity: number;
+      decay: number;
+    }
+
+    const particles: Particle[] = [];
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+
+    // Burst from two points (left-center and right-center)
+    for (let i = 0; i < 120; i++) {
+      const fromLeft = i % 2 === 0;
+      particles.push({
+        x: fromLeft ? W * 0.25 : W * 0.75,
+        y: H * 0.4,
+        vx: (Math.random() - 0.5) * 14,
+        vy: -Math.random() * 12 - 4,
+        w: Math.random() * 8 + 4,
+        h: Math.random() * 6 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rotation: Math.random() * 360,
+        rotationSpeed: (Math.random() - 0.5) * 12,
+        opacity: 1,
+        decay: 0.005 + Math.random() * 0.008,
+      });
+    }
+
+    let raf: number;
+    const gravity = 0.25;
+
+    const animate = () => {
+      ctx.clearRect(0, 0, W, H);
+      let alive = 0;
+
+      for (const p of particles) {
+        if (p.opacity <= 0) continue;
+        alive++;
+        p.vy += gravity;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rotation += p.rotationSpeed;
+        p.opacity -= p.decay;
+        p.vx *= 0.99;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.globalAlpha = Math.max(0, p.opacity);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+
+      if (alive > 0) {
+        raf = requestAnimationFrame(animate);
+      }
+    };
+
+    raf = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-20"
+    />
   );
 }
 
@@ -247,201 +366,15 @@ function ThemePreferenceStep({ initialAnswer, onChange }: StepComponentProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Step: Business context (with industry dropdown)
+// Step wrappers: delegate to shared components
 // ---------------------------------------------------------------------------
-
-const INDUSTRIES = [
-  'Technology / SaaS',
-  'Healthcare',
-  'Finance / Banking',
-  'E-commerce / Retail',
-  'Education',
-  'Manufacturing',
-  'Real Estate',
-  'Consulting / Professional Services',
-  'Marketing / Advertising',
-  'Legal',
-  'Non-profit',
-  'Government',
-  'Other',
-];
 
 function BusinessContextStep({ initialAnswer, onChange }: StepComponentProps) {
-  const [companyName, setCompanyName] = useState(
-    (initialAnswer.companyName as string) ?? '',
-  );
-  const [industry, setIndustry] = useState(
-    (initialAnswer.industry as string) ?? '',
-  );
-  const [customIndustry, setCustomIndustry] = useState(
-    (initialAnswer.customIndustry as string) ?? '',
-  );
-  const [description, setDescription] = useState(
-    (initialAnswer.description as string) ?? '',
-  );
-
-  const isOther = industry === 'Other';
-  const effectiveIndustry = isOther ? customIndustry.trim() : industry;
-
-  useEffect(() => {
-    const valid = companyName.trim().length > 0 && effectiveIndustry.length > 0;
-    onChange(
-      { companyName, industry, customIndustry, description },
-      valid,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyName, industry, customIndustry, description]);
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3 text-primary">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Building2 className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="font-semibold">About your business</h3>
-          <p className="text-xs text-muted-foreground">
-            Help the AI understand your context for better insights.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="companyName">Company / Organization name</Label>
-          <Input
-            id="companyName"
-            placeholder="Acme Corp"
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Industry</Label>
-          <Select value={industry} onValueChange={setIndustry}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select your industry" />
-            </SelectTrigger>
-            <SelectContent>
-              {INDUSTRIES.map((ind) => (
-                <SelectItem key={ind} value={ind}>
-                  {ind}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {isOther && (
-            <Input
-              placeholder="Enter your industry..."
-              value={customIndustry}
-              onChange={(e) => setCustomIndustry(e.target.value)}
-              autoFocus
-            />
-          )}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">
-            Brief description <span className="text-muted-foreground">(optional)</span>
-          </Label>
-          <Textarea
-            id="description"
-            placeholder="What does your company do? What kind of documents will you upload?"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="resize-none"
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return <BusinessContextFields initialAnswer={initialAnswer} onChange={onChange} />;
 }
 
-// ---------------------------------------------------------------------------
-// Step: Usage goals
-// ---------------------------------------------------------------------------
-
-const GOAL_OPTIONS = [
-  'Document analysis & search',
-  'Business intelligence & insights',
-  'Knowledge management',
-  'Automated reporting',
-  'Customer support workflows',
-  'Research & data exploration',
-];
-
 function UsageGoalsStep({ initialAnswer, onChange }: StepComponentProps) {
-  const [selectedGoals, setSelectedGoals] = useState<string[]>(
-    (initialAnswer.goals as string[]) ?? [],
-  );
-  const [customGoal, setCustomGoal] = useState(
-    (initialAnswer.customGoal as string) ?? '',
-  );
-
-  useEffect(() => {
-    const valid = selectedGoals.length > 0 || customGoal.trim().length > 0;
-    onChange({ goals: selectedGoals, customGoal }, valid);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGoals, customGoal]);
-
-  const toggleGoal = (goal: string) => {
-    setSelectedGoals((prev) =>
-      prev.includes(goal) ? prev.filter((g) => g !== goal) : [...prev, goal],
-    );
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3 text-primary">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Target className="h-5 w-5" />
-        </div>
-        <div>
-          <h3 className="font-semibold">Your goals</h3>
-          <p className="text-xs text-muted-foreground">
-            What do you want to achieve with Project X?
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>Select all that apply</Label>
-          <div className="grid grid-cols-2 gap-2">
-            {GOAL_OPTIONS.map((goal) => {
-              const active = selectedGoals.includes(goal);
-              return (
-                <button
-                  key={goal}
-                  type="button"
-                  onClick={() => toggleGoal(goal)}
-                  className={`rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-200 ${
-                    active
-                      ? 'border-primary bg-primary/5 text-primary shadow-sm'
-                      : 'border-border hover:border-primary/40 hover:bg-muted/50'
-                  }`}
-                >
-                  {goal}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="customGoal">
-            Anything else? <span className="text-muted-foreground">(optional)</span>
-          </Label>
-          <Input
-            id="customGoal"
-            placeholder="Tell us more about what you're looking to do..."
-            value={customGoal}
-            onChange={(e) => setCustomGoal(e.target.value)}
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return <UsageGoalsFields initialAnswer={initialAnswer} onChange={onChange} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +438,7 @@ function MiniActivityFeed({ documentIds }: { documentIds: string[] }) {
   const recent = relevantEvents.slice(-20);
 
   return (
-    <div className="flex max-h-64 flex-col gap-px overflow-y-auto rounded-lg border bg-card p-3">
+    <div className="accent-scrollbar flex max-h-64 flex-col gap-px overflow-y-auto rounded-lg border bg-card p-3">
       {recent.map((evt, i) => {
         const Icon = ACTIVITY_ICON[evt.type];
         const dot = ACTIVITY_DOT[evt.type];
@@ -535,14 +468,41 @@ function MiniActivityFeed({ documentIds }: { documentIds: string[] }) {
 type UploadPhase = 'upload' | 'processing' | 'done';
 
 function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessingDone }: StepComponentProps) {
-  const [files, setFiles] = useState<UploadedFile[]>(
-    (initialAnswer.files as UploadedFile[]) ?? [],
-  );
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('upload');
   const [processingDocIds, setProcessingDocIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const dragIdxRef = useRef<number | null>(null);
+
+  // On mount: if we have saved documentIds (e.g. after refresh), fetch their info from the API
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    const savedIds = (initialAnswer.documentIds as string[]) ?? [];
+    if (savedIds.length === 0) return;
+    restoredRef.current = true;
+
+    api.get<Array<{ id: string; title: string; filename: string; mimeType: string; fileSize: number; status: string }>>(
+      '/knowledge/documents',
+    ).then(({ data }) => {
+      const savedSet = new Set(savedIds);
+      const restored = data
+        .filter((d) => savedSet.has(d.id))
+        .map((d) => ({
+          id: d.id,
+          originalName: d.title || d.filename,
+          mimeType: d.mimeType,
+          fileSize: d.fileSize,
+          status: d.status,
+        }));
+      // Preserve the order from savedIds
+      const byId = new Map(restored.map((f) => [f.id, f]));
+      const ordered = savedIds.map((id) => byId.get(id)).filter(Boolean) as UploadedFile[];
+      setFiles(ordered);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // When parent signals processing started, transition to processing phase
   useEffect(() => {
@@ -556,43 +516,75 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessing
   // Poll document statuses during processing
   const [docStatuses, setDocStatuses] = useState<Record<string, string>>({});
 
+  // Use activity events to detect completion instantly (no polling delay)
+  const { events: activityEvents } = useKnowledgeActivity();
+
   useEffect(() => {
     if (uploadPhase !== 'processing' || processingDocIds.length === 0) return;
-    const interval = setInterval(async () => {
+
+    // Check activity events for completion signals — update statuses instantly
+    for (const evt of activityEvents) {
+      if (
+        processingDocIds.includes(evt.documentId) &&
+        (evt.type === 'complete' || evt.type === 'error')
+      ) {
+        setDocStatuses((prev) => {
+          if (prev[evt.documentId] === 'completed' || prev[evt.documentId] === 'failed') return prev;
+          return { ...prev, [evt.documentId]: evt.type === 'complete' ? 'completed' : 'failed' };
+        });
+      }
+    }
+  }, [uploadPhase, processingDocIds, activityEvents]);
+
+  useEffect(() => {
+    if (uploadPhase !== 'processing' || processingDocIds.length === 0) return;
+
+    const pollStatuses = async () => {
       try {
-        const { data } = await api.get<Array<{ id: string; status: string }>>(
+        const { data } = await api.get<Array<{ id: string; title: string; filename: string; status: string }>>(
           '/knowledge/documents',
         );
         const statusMap: Record<string, string> = {};
         for (const doc of data) {
           if (processingDocIds.includes(doc.id)) {
             statusMap[doc.id] = doc.status;
+            // Update display name if the agent generated a title
+            if (doc.title) {
+              setFiles((prev) =>
+                prev.map((f) => (f.id === doc.id && f.originalName !== doc.title ? { ...f, originalName: doc.title } : f)),
+              );
+            }
           }
         }
         setDocStatuses(statusMap);
-
-        // Check if all are done
-        const allDone = processingDocIds.every(
-          (id) =>
-            statusMap[id] === 'completed' || statusMap[id] === 'failed',
-        );
-        if (allDone) {
-          setUploadPhase('done');
-          clearInterval(interval);
-          clearActivityForDocuments(processingDocIds);
-          onProcessingDone?.();
-        }
       } catch {
         // ignore polling errors
       }
-    }, 3000);
+    };
+
+    // Poll immediately, then every 3 seconds
+    pollStatuses();
+    const interval = setInterval(pollStatuses, 3000);
     return () => clearInterval(interval);
-  }, [uploadPhase, processingDocIds, onProcessingDone]);
+  }, [uploadPhase, processingDocIds]);
+
+  // Detect when all documents are done (from either activity events or polling)
+  useEffect(() => {
+    if (uploadPhase !== 'processing' || processingDocIds.length === 0) return;
+    const allDone = processingDocIds.every(
+      (id) => docStatuses[id] === 'completed' || docStatuses[id] === 'failed',
+    );
+    if (allDone) {
+      setUploadPhase('done');
+      clearActivityForDocuments(processingDocIds);
+      onProcessingDone?.();
+    }
+  }, [uploadPhase, processingDocIds, docStatuses, onProcessingDone]);
 
   // Notify parent of validity
   useEffect(() => {
     const documentIds = files.map((f) => f.id);
-    onChange({ documentIds, files }, files.length > 0);
+    onChange({ documentIds }, files.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files]);
 
@@ -900,7 +892,14 @@ export function OnboardingPage() {
 
   const handleProcessingDone = useCallback(() => {
     setKnowledgeProcessingDone(true);
-  }, []);
+    // Auto-transition to the finishing phase after a brief pause
+    setTimeout(() => {
+      dispatch(fetchMe());
+      dispatch(setOnboardingCompleted());
+      setStepsExiting(true);
+      setTimeout(() => setPhase('finishing'), 500);
+    }, 1200);
+  }, [dispatch]);
 
   // Fetch onboarding status and saved answers on mount
   useEffect(() => {
@@ -986,14 +985,13 @@ export function OnboardingPage() {
     if (currentStep.id === 'knowledge_upload') {
       const answer = answers[currentStep.id] ?? {};
       const documentIds = (answer.documentIds as string[]) ?? [];
-      const files = (answer.files as UploadedFile[]) ?? [];
 
       setSaving(true);
       try {
-        // Save the full answer (including files metadata for restore on refresh)
+        // Only save document IDs — file metadata is fetched from the API on resume
         const result = await api.post<OnboardingStatus>(
           `/onboarding/steps/${currentStep.id}`,
-          { answer: { documentIds, files } },
+          { answer: { documentIds } },
         );
         setStatus(result.data);
 
@@ -1036,15 +1034,10 @@ export function OnboardingPage() {
   };
 
   const finishOnboarding = () => {
+    dispatch(fetchMe());
+    dispatch(setOnboardingCompleted());
     setStepsExiting(true);
-    setTimeout(() => {
-      setPhase('finishing');
-    }, 500);
-    setTimeout(() => {
-      dispatch(fetchMe());
-      dispatch(setOnboardingCompleted());
-      navigate('/app', { replace: true });
-    }, 2500);
+    setTimeout(() => setPhase('finishing'), 500);
   };
 
   const handleBack = () => {
@@ -1075,25 +1068,35 @@ export function OnboardingPage() {
     );
   }
 
-  // -- Finishing phase: staggered success animation --
+  // -- Finishing phase: confetti + explore button --
   if (phase === 'finishing') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Meta title="Onboarding" />
-        <div className="flex flex-col items-center gap-5 text-center">
+      <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden">
+        <Meta title="Welcome!" />
+        <ConfettiCanvas />
+        <div className="relative z-10 flex flex-col items-center gap-5 text-center">
           <FadeIn delay={100} duration={600}>
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary mx-auto">
-              <Check className="h-8 w-8" />
+            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary mx-auto ring-4 ring-primary/20">
+              <Check className="h-10 w-10" strokeWidth={2.5} />
             </div>
           </FadeIn>
           <FadeIn delay={400} duration={600}>
-            <h2 className="text-2xl font-bold tracking-tight">You&apos;re all set!</h2>
+            <h2 className="text-3xl font-bold tracking-tight">You&apos;re all set!</h2>
           </FadeIn>
           <FadeIn delay={650} duration={600}>
-            <p className="text-sm text-muted-foreground">Taking you to your workspace...</p>
+            <p className="text-muted-foreground max-w-sm">
+              Your workspace is ready. Your documents have been processed and your AI assistant is standing by.
+            </p>
           </FadeIn>
           <FadeIn delay={900} duration={600}>
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/50 mt-2" />
+            <Button
+              size="lg"
+              className="mt-4 gap-2 px-8 text-base"
+              onClick={() => navigate('/app', { replace: true })}
+            >
+              Explore the Dashboard
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </FadeIn>
         </div>
       </div>

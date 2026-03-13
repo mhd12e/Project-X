@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { EmbeddingService } from './embedding.service';
 import {
   QdrantService,
@@ -112,7 +113,7 @@ export class RagIngestionService {
           items.push({
             vector: summaryEmbedding,
             payload: {
-              chunk_id: `${document.id}__summary`,
+              chunk_id: randomUUID(),
               document_id: document.id,
               source_file: document.title ?? 'Untitled',
               section_name: 'Document Summary',

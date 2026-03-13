@@ -349,16 +349,15 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="flex gap-3">
-          <div
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-              isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
-            }`}
-          >
-            {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-          </div>
-          <div className="min-w-0 max-w-[80%]">
+        <div className={`flex gap-3 ${isUser ? 'justify-end' : ''}`}>
+          {!isUser && (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Bot className="h-4 w-4" />
+            </div>
+          )}
+          <div className={`min-w-0 max-w-[80%] ${isUser ? 'text-end' : ''}`}>
             <div
+              dir="auto"
               className={`inline-block rounded-2xl px-4 py-2.5 text-sm ${
                 isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
               }`}
@@ -370,6 +369,11 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: ChatMe
               )}
             </div>
           </div>
+          {isUser && (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <User className="h-4 w-4" />
+            </div>
+          )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>

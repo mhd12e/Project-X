@@ -239,7 +239,7 @@ function ActivityFeed({ documentId }: { documentId: string }) {
   const isComplete = events.some((e) => e.type === 'complete' || e.type === 'error');
 
   return (
-    <div className="flex max-h-96 flex-col gap-px overflow-y-auto rounded-lg border bg-card p-3">
+    <div className="accent-scrollbar flex max-h-96 flex-col gap-px overflow-y-auto rounded-lg border bg-card p-3">
       {tree.map((node, ri) => (
         <div key={ri} className="flex flex-col gap-px">
           <TreeLine event={node.event} isLast={ri === tree.length - 1 && node.children.length === 0} depth={0} />

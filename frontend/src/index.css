@@ -194,6 +194,21 @@
   border-radius: 3px;
 }
 
+/* Accent scrollbar for activity feeds */
+.accent-scrollbar::-webkit-scrollbar { width: 4px; }
+.accent-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.accent-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.4);
+  border-radius: 9999px;
+}
+.accent-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.7);
+}
+.accent-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--primary) / 0.4) transparent;
+}
+
 /* Hover lift effect */
 .hover-lift {
   transition: transform 0.3s ease, box-shadow 0.3s ease;

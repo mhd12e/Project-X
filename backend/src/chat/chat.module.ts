@@ -8,12 +8,14 @@ import { ChatGateway } from './chat.gateway';
 import { ChatAgentService } from './chat-agent.service';
 import { RetrievalModule } from '../retrieval/retrieval.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
+import { AgentContextModule } from '../common/agent-context.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ChatConversation, ChatMessage]),
     RetrievalModule,
     KnowledgeModule,
+    AgentContextModule,
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway, ChatAgentService],

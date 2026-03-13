@@ -92,7 +92,7 @@ export class KnowledgeController {
     }).catch(() => {});
 
     // Process asynchronously — don't block the upload response
-    this.agentService.processDocument(document).catch((error) => {
+    this.agentService.processDocument(document, user.id).catch((error) => {
       this.logger.error(
         `Background processing failed for ${document.id}: ${error}`,
       );

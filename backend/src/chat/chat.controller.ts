@@ -89,6 +89,7 @@ export class ChatController {
   async sendMessage(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SendMessageDto,
+    @CurrentUser() user: User,
   ) {
     const conv = await this.chatService.findConversationById(id);
     if (!conv) throw new NotFoundException('Conversation not found');
@@ -106,7 +107,7 @@ export class ChatController {
     }).catch(() => {});
 
     // Process async — response streams via WebSocket
-    this.agentService.processMessage(id, dto.message).catch((error) => {
+    this.agentService.processMessage(id, dto.message, user.id).catch((error) => {
       this.logger.error(`Chat agent failed for ${id}: ${error}`);
     });
 

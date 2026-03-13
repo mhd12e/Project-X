@@ -12,6 +12,7 @@ import { RetrievalService } from '../retrieval/retrieval.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { ActivityLogService } from '../activity/activity-log.service';
 import { ActivityCategory, ActivityLevel } from '../activity/activity-log.entity';
+import { AgentContextService } from '../common/agent-context.service';
 
 const CHAT_SYSTEM_PROMPT = `You are the AI Assistant for Project X, a business intelligence platform.
 
@@ -52,6 +53,7 @@ export class ChatAgentService {
     private readonly retrievalService: RetrievalService,
     private readonly knowledgeService: KnowledgeService,
     private readonly activityLog: ActivityLogService,
+    private readonly agentContext: AgentContextService,
   ) {}
 
   private emit(
@@ -67,7 +69,7 @@ export class ChatAgentService {
     });
   }
 
-  async processMessage(conversationId: string, userMessage: string): Promise<void> {
+  async processMessage(conversationId: string, userMessage: string, userId?: string): Promise<void> {
     this.logger.log(`Processing chat message in conversation ${conversationId}`);
 
     this.emit(conversationId, 'status', { content: 'Thinking...' });
@@ -78,14 +80,24 @@ export class ChatAgentService {
       const conversation = await this.chatService.findConversationById(conversationId);
       if (!conversation) throw new Error('Conversation not found');
 
+      // Resolve userId from conversation if not provided
+      const resolvedUserId = userId ?? conversation.userId;
+
+      // Build user context from profile + onboarding answers
+      const userContext = resolvedUserId
+        ? await this.agentContext.getContextBlock(resolvedUserId)
+        : '';
+
       const historyContext = conversation.messages
         .slice(-20) // Last 20 messages for context
         .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
         .join('\n\n');
 
-      const prompt = historyContext
-        ? `Previous conversation:\n${historyContext}\n\n---\n\nUser's new message: ${userMessage}`
-        : userMessage;
+      const promptParts: string[] = [];
+      if (userContext) promptParts.push(userContext, '\n---\n');
+      if (historyContext) promptParts.push(`Previous conversation:\n${historyContext}`, '\n---\n');
+      promptParts.push(`User's new message: ${userMessage}`);
+      const prompt = promptParts.join('\n');
 
       let fullText = '';
       let inToolDepth = 0;
