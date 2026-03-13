@@ -26,22 +26,7 @@ import { DocumentStatus } from './knowledge-document.entity';
 import { RagIngestionService } from '../retrieval/rag-ingestion.service';
 import { ActivityLogService } from '../activity/activity-log.service';
 import { ActivityCategory } from '../activity/activity-log.entity';
-
-const ALLOWED_MIME_TYPES = [
-  'application/pdf',
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'application/json',
-  'application/xml',
-  'text/xml',
-  'text/html',
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/webp',
-  'image/gif',
-];
+import { ALLOWED_MIME_TYPES } from './knowledge.constants';
 
 @Controller('knowledge')
 @UseGuards(JwtAuthGuard, OnboardingGuard)
@@ -96,29 +81,7 @@ export class KnowledgeController {
       `File uploaded: ${file.originalname} (${file.size} bytes) by ${user.id}`,
     );
 
-    // Store only the extension from the original name — no original filename saved
-    const ext = path.extname(file.originalname);
-    const document = await this.knowledgeService.createDocument({
-      filename: `upload${ext}`,  // placeholder until renamed with doc ID
-      mimeType: file.mimetype,
-      fileSize: file.size,
-      filePath: file.path,
-      uploadedById: user.id,
-    });
-
-    // Rename file on disk to {documentId}{ext} for organized storage
-    const storageName = `${document.id}${ext}`;
-    const organizedPath = path.join(path.dirname(file.path), storageName);
-    try {
-      const fs = await import('fs');
-      fs.renameSync(file.path, organizedPath);
-      document.filename = storageName;
-      document.filePath = organizedPath;
-      await this.knowledgeService.updateFilePath(document.id, organizedPath);
-      await this.knowledgeService.updateFilename(document.id, storageName);
-    } catch {
-      // Keep original path if rename fails
-    }
+    const document = await this.knowledgeService.createDocumentFromFile(file, user.id);
 
     this.activityLog.log({
       category: ActivityCategory.KNOWLEDGE,

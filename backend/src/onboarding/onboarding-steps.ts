@@ -32,4 +32,9 @@ export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
     title: 'Your goals',
     description: 'Tell us what you want to achieve with Project X.',
   },
+  {
+    id: 'knowledge_upload',
+    title: 'Teach Project X about your business',
+    description: 'Upload your business documents so the AI can learn about your company.',
+  },
 ];

@@ -20,6 +20,6 @@ import { RetrievalModule } from '../retrieval/retrieval.module';
   ],
   controllers: [KnowledgeController],
   providers: [KnowledgeService, KnowledgeAgentService, KnowledgeGateway],
-  exports: [KnowledgeService],
+  exports: [KnowledgeService, KnowledgeAgentService],
 })
 export class KnowledgeModule {}
