@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Meta } from '@/components/shared/meta';
 import { Markdown } from '@/components/shared/markdown';
 import {
   Brain,
@@ -620,6 +621,7 @@ export function KnowledgePage() {
 
   return (
     <div className="flex flex-1 flex-col gap-8">
+      <Meta title="Knowledge" />
       <PageHeader
         title="Knowledge"
         subtitle="Structured business information and documentation."

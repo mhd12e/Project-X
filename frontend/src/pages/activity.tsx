@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { Meta } from '@/components/shared/meta';
 import {
   Activity,
   AlertTriangle,
@@ -148,6 +149,7 @@ export function ActivityPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
+      <Meta title="Activity" />
       <PageHeader
         title="System Activity"
         subtitle="Real-time log of all platform actions, agent operations, and system events."

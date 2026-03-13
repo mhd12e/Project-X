@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppSelector } from '@/store';
+import { Meta } from '@/components/shared/meta';
 import api from '@/lib/api';
 
 // ---- Types ----
@@ -614,6 +615,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
+      <Meta title="Dashboard" />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

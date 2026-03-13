@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import { Meta } from '@/components/shared/meta';
 import {
   Sun,
   Moon,
@@ -271,6 +272,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-8">
+      <Meta title="Settings" />
       <PageHeader
         title="Settings"
         subtitle="Manage your profile and preferences."
