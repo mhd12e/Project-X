@@ -25,6 +25,8 @@ import {
   MessageSquare,
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Meta } from '@/components/shared/meta';
@@ -369,14 +371,20 @@ function ThemePreferenceStep({ initialAnswer, onChange }: StepComponentProps) {
 // Step: Claude Sign-in (OAuth)
 // ---------------------------------------------------------------------------
 
-type ClaudeSignInPhase = 'idle' | 'loading_url' | 'waiting_for_code' | 'submitting' | 'success' | 'error';
+type ClaudeConnectPhase = 'idle' | 'loading_url' | 'waiting_for_code' | 'submitting' | 'success' | 'error';
 
-function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
-  const [phase, setPhase] = useState<ClaudeSignInPhase>('idle');
+const SESSION_TIMEOUT_SEC = 5 * 60; // must match backend SESSION_TIMEOUT
+
+function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
+  const [phase, setPhase] = useState<ClaudeConnectPhase>('idle');
   const [code, setCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [oauthUrl, setOauthUrl] = useState('');
+  const [secondsLeft, setSecondsLeft] = useState(SESSION_TIMEOUT_SEC);
+  const [oauthToken, setOauthToken] = useState('');
+  const [tokenVisible, setTokenVisible] = useState(false);
   const cancelledRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-complete if already configured or previously completed
   useEffect(() => {
@@ -402,24 +410,58 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
+      if (timerRef.current) clearInterval(timerRef.current);
       api.post('/onboarding/claude-oauth/cancel').catch(() => {});
     };
   }, []);
 
-  const handleSignIn = async () => {
+  const startTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setSecondsLeft(SESSION_TIMEOUT_SEC);
+    timerRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          timerRef.current = null;
+          // Session expired — show error
+          setPhase('error');
+          setErrorMsg('Session expired. Please start the connection flow again.');
+          api.post('/onboarding/claude-oauth/cancel').catch(() => {});
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleConnect = async () => {
     setPhase('loading_url');
     setErrorMsg('');
+    setCode('');
     try {
       const res = await api.post<{ oauthUrl: string }>('/onboarding/claude-oauth/initiate');
       if (cancelledRef.current) return;
       setOauthUrl(res.data.oauthUrl);
-      // Open the OAuth URL in a new tab (may be blocked by popup blocker)
       window.open(res.data.oauthUrl, '_blank');
       setPhase('waiting_for_code');
+      startTimer();
     } catch (err) {
       if (cancelledRef.current) return;
       setPhase('error');
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to start sign-in flow');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to start connection');
     }
   };
 
@@ -427,13 +469,15 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
     if (!code.trim()) return;
     setPhase('submitting');
     setErrorMsg('');
+    stopTimer();
     try {
-      const res = await api.post<{ success: boolean; error?: string }>('/onboarding/claude-oauth/submit-code', {
+      const res = await api.post<{ success: boolean; error?: string; oauthToken?: string }>('/onboarding/claude-oauth/submit-code', {
         code: code.trim(),
       });
       if (cancelledRef.current) return;
       if (res.data.success) {
         setPhase('success');
+        if (res.data.oauthToken) setOauthToken(res.data.oauthToken);
         onChange({ completed: true }, true);
       } else {
         setPhase('error');
@@ -447,9 +491,10 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
   };
 
   const handleRetry = () => {
+    stopTimer();
     setCode('');
     setErrorMsg('');
-    handleSignIn();
+    handleConnect();
   };
 
   return (
@@ -459,7 +504,7 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
           <Bot className="h-5 w-5" />
         </div>
         <div>
-          <h3 className="font-semibold">Sign in with Claude</h3>
+          <h3 className="font-semibold">Connect Claude Account</h3>
           <p className="text-xs text-muted-foreground">
             Connect your Claude account to power the AI features.
           </p>
@@ -469,12 +514,12 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
       {phase === 'idle' && (
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Project X uses Claude as its AI engine. Sign in with your Anthropic account to activate
+            Project X uses Claude as its AI engine. Connect your Anthropic account to activate
             document analysis, knowledge search, and chat capabilities.
           </p>
-          <Button onClick={handleSignIn} className="w-full gap-2" size="lg">
+          <Button onClick={handleConnect} className="w-full gap-2" size="lg">
             <Bot className="h-4 w-4" />
-            Sign in with Claude
+            Connect Claude Account
           </Button>
         </div>
       )}
@@ -482,16 +527,25 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
       {phase === 'loading_url' && (
         <div className="flex flex-col items-center gap-3 py-4">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Starting sign-in flow...</p>
+          <p className="text-sm text-muted-foreground">Starting connection...</p>
         </div>
       )}
 
       {phase === 'waiting_for_code' && (
         <div className="space-y-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              Complete the authorization in Claude&apos;s website, then paste the code below.
-            </p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Complete the authorization in Claude&apos;s website, then paste the code below.
+              </p>
+              <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-mono tabular-nums ${
+                secondsLeft <= 60
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+              }`}>
+                {formatTime(secondsLeft)}
+              </span>
+            </div>
             {oauthUrl && (
               <a
                 href={oauthUrl}
@@ -524,6 +578,7 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
           <button
             type="button"
             onClick={() => {
+              stopTimer();
               api.post('/onboarding/claude-oauth/cancel').catch(() => {});
               setPhase('idle');
               setCode('');
@@ -553,6 +608,23 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
           <p className="text-xs text-muted-foreground">
             Your Claude account is linked. AI features are ready to use.
           </p>
+          {oauthToken && (
+            <div className="mt-2 w-full rounded border border-border bg-muted/50 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-medium text-muted-foreground">OAuth Token</span>
+                <button
+                  type="button"
+                  onClick={() => setTokenVisible((v) => !v)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {tokenVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] font-mono text-muted-foreground break-all select-all">
+                {tokenVisible ? oauthToken : `${oauthToken.slice(0, 18)}${'•'.repeat(40)}`}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -1046,7 +1118,7 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessing
 
 const STEP_COMPONENTS: Record<string, React.ComponentType<StepComponentProps>> = {
   theme_preference: ThemePreferenceStep,
-  claude_signin: ClaudeSignInStep,
+  claude_signin: ClaudeConnectStep,
   business_context: BusinessContextStep,
   usage_goals: UsageGoalsStep,
   knowledge_upload: KnowledgeUploadStep,

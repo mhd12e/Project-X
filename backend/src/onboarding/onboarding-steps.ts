@@ -24,8 +24,8 @@ export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   },
   {
     id: 'claude_signin',
-    title: 'Sign in with Claude',
-    description: 'Connect your Claude account to power the AI features.',
+    title: 'Connect Claude Account',
+    description: 'Link your Claude account to power the AI features.',
   },
   {
     id: 'business_context',

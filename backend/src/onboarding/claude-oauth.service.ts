@@ -11,12 +11,118 @@ const CODE_SUBMIT_TIMEOUT = 30_000;
 /** Strip ANSI escape sequences and TTY control codes from TUI output */
 function stripAnsi(text: string): string {
   return text
+    // Cursor movement ESC[nC → replace with space (TUI uses this for word spacing)
+    .replace(/\x1b\[\d*C/g, ' ')
     // Standard CSI sequences: ESC[...letter and ESC[?...letter
     .replace(/\x1b\[[\?]?[0-9;]*[a-zA-Z]/g, '')
     // ESC sequences like ESC>0q, ESC(B, ESC]...
     .replace(/\x1b[>=()\]][^\x1b]*/g, '')
     // Carriage returns from raw TTY
     .replace(/\r/g, '');
+}
+
+/**
+ * Extract a token from raw TUI output by walking character-by-character,
+ * skipping over inline ANSI escape sequences. The Ink TUI interleaves
+ * cursor positioning within printed text, so naive strip-then-regex fails.
+ */
+function extractToken(raw: string): string | null {
+  const marker = 'sk-ant-oat01-';
+  const idx = raw.indexOf(marker);
+  if (idx === -1) return null;
+
+  let result = '';
+  let i = idx;
+  while (i < raw.length) {
+    const ch = raw[i];
+
+    // Skip ANSI escape sequences inline
+    if (ch === '\x1b' && i + 1 < raw.length && raw[i + 1] === '[') {
+      // CSI sequence: ESC[ ... <letter>
+      i += 2;
+      while (i < raw.length && !/[a-zA-Z]/.test(raw[i])) i++;
+      i++; // skip the terminating letter
+      continue;
+    }
+    if (ch === '\x1b') {
+      // Other ESC sequence — skip ESC + next char
+      i += 2;
+      continue;
+    }
+
+    // Token characters: alphanumeric, dash, underscore
+    if (/[A-Za-z0-9_-]/.test(ch)) {
+      result += ch;
+      i++;
+      continue;
+    }
+
+    // Skip \r (TTY artifact)
+    if (ch === '\r') {
+      i++;
+      continue;
+    }
+
+    // Newline within a line-wrapped token — keep going if next
+    // non-ANSI, non-whitespace char is a valid token char
+    if (ch === '\n') {
+      // Peek ahead past whitespace and ANSI to see if token continues
+      let j = i + 1;
+      while (j < raw.length) {
+        if (raw[j] === '\x1b') {
+          // skip ANSI
+          if (j + 1 < raw.length && raw[j + 1] === '[') {
+            j += 2;
+            while (j < raw.length && !/[a-zA-Z]/.test(raw[j])) j++;
+            j++;
+          } else {
+            j += 2;
+          }
+        } else if (raw[j] === '\r' || raw[j] === '\n' || raw[j] === ' ') {
+          // Two consecutive newlines (blank line) = end of token
+          if (raw[j] === '\n' && j > 0 && (raw[j - 1] === '\n' || (raw[j - 1] === '\r' && j - 2 >= 0 && raw[j - 2] === '\n'))) {
+            return cleanToken(result);
+          }
+          j++;
+        } else if (/[A-Za-z0-9_-]/.test(raw[j])) {
+          // Token continues after line wrap
+          break;
+        } else {
+          // Non-token char — end
+          return result.length > 20 ? result : null;
+        }
+      }
+      i = j;
+      continue;
+    }
+
+    // Any other character = end of token
+    break;
+  }
+
+  return cleanToken(result);
+}
+
+/** Trim known footer text that may get concatenated to the token */
+function cleanToken(raw: string): string | null {
+  if (raw.length <= 20) return null;
+  // The CLI prints "Store this token securely..." right after the token.
+  // ANSI gaps may collapse, concatenating it to the token text.
+  const suffixes = [
+    'Storethistokensecurely',
+    'Storethistoken',
+    'Storethis',
+    'Store',
+  ];
+  let token = raw;
+  for (const suffix of suffixes) {
+    const idx = token.indexOf(suffix);
+    if (idx > 20) {
+      token = token.substring(0, idx);
+      break;
+    }
+  }
+  return token.length > 20 ? token : null;
 }
 
 interface OAuthSession {
@@ -193,12 +299,12 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
         const newOutput = session.output.substring(outputBefore);
         const clean = stripAnsi(newOutput);
 
-        // Success: CLI prints the long-lived token
-        const tokenMatch = clean.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
-        if (tokenMatch) {
+        // Success: CLI prints the long-lived token. Extract from RAW output
+        // (not stripped) to avoid ANSI sequences corrupting the token.
+        const token = extractToken(newOutput);
+        if (token) {
           settled = true;
           clearInterval(checkInterval);
-          const token = tokenMatch[0];
           this.persistToken(token);
           this.logger.log(`OAuth token obtained and persisted (${token.length} chars)`);
           this.cleanup(userId);
@@ -206,19 +312,24 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
-        // Failure: CLI prints an error and waits for Enter to retry
-        if (clean.includes('OAuth error')) {
-          const errorMatch = clean.match(/OAuth error:\s*(.+)/);
-          if (errorMatch) {
-            settled = true;
-            clearInterval(checkInterval);
-            const errorMsg = errorMatch[1].trim();
-            this.logger.error(`OAuth error from CLI: ${errorMsg}`);
-            // Kill the process — user will need to start fresh
-            this.cleanup(userId);
-            resolve({ success: false, error: errorMsg });
-            return;
-          }
+        // Failure: CLI prints "OAuth error: ..." and waits for Enter to retry.
+        // With proper stripAnsi the spaces are preserved, but also handle the
+        // space-less variant as a safety net.
+        const oauthErrMatch =
+          clean.match(/OAuth\s*error:\s*(.+)/) ||
+          clean.match(/OAutherror:\s*(.+)/);
+        if (oauthErrMatch) {
+          settled = true;
+          clearInterval(checkInterval);
+          const rawMsg = oauthErrMatch[1].trim();
+          this.logger.error(`OAuth error from CLI: ${rawMsg}`);
+          this.cleanup(userId);
+          // Return a user-friendly message based on the CLI error
+          const errorMsg = rawMsg.includes('400') || rawMsg.includes('Invalid')
+            ? 'Invalid or expired code. Please make sure you copied the full code correctly.'
+            : `Authentication failed: ${rawMsg}`;
+          resolve({ success: false, error: errorMsg });
+          return;
         }
       }, 300);
 
@@ -234,10 +345,10 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
           const newOutput = session.output.substring(outputBefore);
           const clean = stripAnsi(newOutput);
 
-          const tokenMatch = clean.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
-          if (tokenMatch) {
-            this.persistToken(tokenMatch[0]);
-            this.logger.log(`OAuth token obtained on exit (${tokenMatch[0].length} chars)`);
+          const token = extractToken(newOutput);
+          if (token) {
+            this.persistToken(token);
+            this.logger.log(`OAuth token obtained on exit (${token.length} chars)`);
             this.cleanup(userId);
             resolve({ success: true });
           } else {

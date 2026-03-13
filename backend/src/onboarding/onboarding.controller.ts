@@ -121,7 +121,8 @@ export class OnboardingController {
         completed: true,
       });
     }
-    return result;
+    const oauthToken = result.success ? (process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? '') : '';
+    return { ...result, oauthToken };
   }
 
   @Post('claude-oauth/cancel')
