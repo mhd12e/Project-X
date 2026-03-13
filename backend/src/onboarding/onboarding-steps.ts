@@ -23,6 +23,11 @@ export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
     description: 'Pick how you want Project X to look.',
   },
   {
+    id: 'claude_signin',
+    title: 'Sign in with Claude',
+    description: 'Connect your Claude account to power the AI features.',
+  },
+  {
     id: 'business_context',
     title: 'About your business',
     description: 'Help us understand your business so the AI can provide better insights.',

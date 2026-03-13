@@ -8,8 +8,8 @@ RUN npm install -g @anthropic-ai/claude-code
 # Create non-root user — Claude Code CLI refuses bypass-permissions as root
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# su-exec for dropping privileges at runtime
-RUN apk add --no-cache su-exec
+# su-exec for dropping privileges at runtime, script for pseudo-TTY (claude setup-token)
+RUN apk add --no-cache su-exec util-linux
 
 WORKDIR /app
 
@@ -52,7 +52,7 @@ RUN npm install -g @anthropic-ai/claude-code
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-RUN apk add --no-cache su-exec
+RUN apk add --no-cache su-exec util-linux
 
 WORKDIR /app
 

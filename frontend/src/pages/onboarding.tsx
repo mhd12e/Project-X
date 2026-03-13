@@ -366,6 +366,204 @@ function ThemePreferenceStep({ initialAnswer, onChange }: StepComponentProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Step: Claude Sign-in (OAuth)
+// ---------------------------------------------------------------------------
+
+type ClaudeSignInPhase = 'idle' | 'loading_url' | 'waiting_for_code' | 'submitting' | 'success' | 'error';
+
+function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
+  const [phase, setPhase] = useState<ClaudeSignInPhase>('idle');
+  const [code, setCode] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const cancelledRef = useRef(false);
+
+  // Auto-complete if already configured or previously completed
+  useEffect(() => {
+    if (initialAnswer.completed) {
+      setPhase('success');
+      onChange({ completed: true }, true);
+      return;
+    }
+    // Check if token is already configured
+    api.get<{ configured: boolean }>('/onboarding/claude-oauth/status')
+      .then((res) => {
+        if (res.data.configured) {
+          setPhase('success');
+          onChange({ completed: true }, true);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      api.post('/onboarding/claude-oauth/cancel').catch(() => {});
+    };
+  }, []);
+
+  const handleSignIn = async () => {
+    setPhase('loading_url');
+    setErrorMsg('');
+    try {
+      const res = await api.post<{ oauthUrl: string }>('/onboarding/claude-oauth/initiate');
+      if (cancelledRef.current) return;
+      // Open the OAuth URL in a new tab
+      window.open(res.data.oauthUrl, '_blank');
+      setPhase('waiting_for_code');
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setPhase('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to start sign-in flow');
+    }
+  };
+
+  const handleSubmitCode = async () => {
+    if (!code.trim()) return;
+    setPhase('submitting');
+    setErrorMsg('');
+    try {
+      const res = await api.post<{ success: boolean; error?: string }>('/onboarding/claude-oauth/submit-code', {
+        code: code.trim(),
+      });
+      if (cancelledRef.current) return;
+      if (res.data.success) {
+        setPhase('success');
+        onChange({ completed: true }, true);
+      } else {
+        setPhase('error');
+        setErrorMsg(res.data.error ?? 'Invalid code. Please try again.');
+      }
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setPhase('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to submit code');
+    }
+  };
+
+  const handleRetry = () => {
+    setCode('');
+    setErrorMsg('');
+    handleSignIn();
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 text-primary">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+          <Bot className="h-5 w-5" />
+        </div>
+        <div>
+          <h3 className="font-semibold">Sign in with Claude</h3>
+          <p className="text-xs text-muted-foreground">
+            Connect your Claude account to power the AI features.
+          </p>
+        </div>
+      </div>
+
+      {phase === 'idle' && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Project X uses Claude as its AI engine. Sign in with your Anthropic account to activate
+            document analysis, knowledge search, and chat capabilities.
+          </p>
+          <Button onClick={handleSignIn} className="w-full gap-2" size="lg">
+            <Bot className="h-4 w-4" />
+            Sign in with Claude
+          </Button>
+        </div>
+      )}
+
+      {phase === 'loading_url' && (
+        <div className="flex flex-col items-center gap-3 py-4">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Starting sign-in flow...</p>
+        </div>
+      )}
+
+      {phase === 'waiting_for_code' && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              A new tab has been opened. Complete the authorization in Claude&apos;s website,
+              then paste the code below.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="oauth-code" className="text-sm font-medium">Authorization code</Label>
+            <div className="flex gap-2">
+              <input
+                id="oauth-code"
+                type="text"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitCode(); }}
+                placeholder="Paste the code here..."
+                className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                autoFocus
+              />
+              <Button onClick={handleSubmitCode} disabled={!code.trim()}>
+                Submit
+              </Button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              api.post('/onboarding/claude-oauth/cancel').catch(() => {});
+              setPhase('idle');
+              setCode('');
+            }}
+            className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            Cancel and go back
+          </button>
+        </div>
+      )}
+
+      {phase === 'submitting' && (
+        <div className="flex flex-col items-center gap-3 py-4">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Verifying code...</p>
+        </div>
+      )}
+
+      {phase === 'success' && (
+        <div className="flex flex-col items-center gap-3 py-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400">
+            <Check className="h-6 w-6" />
+          </div>
+          <p className="text-sm font-medium text-green-700 dark:text-green-400">
+            Connected successfully!
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Your Claude account is linked. AI features are ready to use.
+          </p>
+        </div>
+      )}
+
+      {phase === 'error' && (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 text-red-600 dark:text-red-400 shrink-0" />
+              <p className="text-sm text-red-800 dark:text-red-200">
+                {errorMsg || 'Something went wrong. Please try again.'}
+              </p>
+            </div>
+          </div>
+          <Button onClick={handleRetry} variant="outline" className="w-full gap-2">
+            Try Again
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Step wrappers: delegate to shared components
 // ---------------------------------------------------------------------------
 
@@ -836,6 +1034,7 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessing
 
 const STEP_COMPONENTS: Record<string, React.ComponentType<StepComponentProps>> = {
   theme_preference: ThemePreferenceStep,
+  claude_signin: ClaudeSignInStep,
   business_context: BusinessContextStep,
   usage_goals: UsageGoalsStep,
   knowledge_upload: KnowledgeUploadStep,

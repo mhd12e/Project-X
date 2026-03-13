@@ -15,11 +15,12 @@ import { diskStorage } from 'multer';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { IsObject } from 'class-validator';
+import { IsObject, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../users/user.entity';
 import { OnboardingService } from './onboarding.service';
+import { ClaudeOAuthService } from './claude-oauth.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { ActivityLogService } from '../activity/activity-log.service';
 import { ActivityCategory } from '../activity/activity-log.entity';
@@ -28,6 +29,11 @@ import { ALLOWED_MIME_TYPES } from '../knowledge/knowledge.constants';
 class SaveStepAnswerDto {
   @IsObject()
   answer!: Record<string, unknown>;
+}
+
+class SubmitClaudeCodeDto {
+  @IsString()
+  code!: string;
 }
 
 @ApiTags('onboarding')
@@ -39,6 +45,7 @@ export class OnboardingController {
 
   constructor(
     private readonly onboardingService: OnboardingService,
+    private readonly claudeOAuth: ClaudeOAuthService,
     private readonly knowledgeService: KnowledgeService,
     private readonly activityLog: ActivityLogService,
   ) {}
@@ -84,6 +91,44 @@ export class OnboardingController {
     }
 
     return result;
+  }
+
+  // ─── Claude OAuth flow ───
+
+  @Get('claude-oauth/status')
+  @ApiOperation({ summary: 'Check if Claude OAuth token is already configured' })
+  getClaudeOAuthStatus() {
+    return { configured: this.claudeOAuth.isConfigured() };
+  }
+
+  @Post('claude-oauth/initiate')
+  @ApiOperation({ summary: 'Start Claude OAuth flow — spawns setup-token and returns URL' })
+  async initiateClaudeOAuth(@CurrentUser() user: User) {
+    this.logger.log(`Starting Claude OAuth flow for user ${user.id}`);
+    return this.claudeOAuth.initiateOAuth(user.id);
+  }
+
+  @Post('claude-oauth/submit-code')
+  @ApiOperation({ summary: 'Submit the OAuth authorization code' })
+  async submitClaudeOAuthCode(
+    @CurrentUser() user: User,
+    @Body() dto: SubmitClaudeCodeDto,
+  ) {
+    const result = await this.claudeOAuth.submitCode(user.id, dto.code);
+    if (result.success) {
+      // Auto-save the step as completed
+      await this.onboardingService.saveStepAnswer(user.id, 'claude_signin', {
+        completed: true,
+      });
+    }
+    return result;
+  }
+
+  @Post('claude-oauth/cancel')
+  @ApiOperation({ summary: 'Cancel an ongoing Claude OAuth session' })
+  cancelClaudeOAuth(@CurrentUser() user: User) {
+    this.claudeOAuth.cancel(user.id);
+    return { ok: true };
   }
 
   /**

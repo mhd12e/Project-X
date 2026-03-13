@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OnboardingAnswer } from './onboarding-answer.entity';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
+import { ClaudeOAuthService } from './claude-oauth.service';
 import { UsersModule } from '../users/users.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 
@@ -13,7 +14,7 @@ import { KnowledgeModule } from '../knowledge/knowledge.module';
     KnowledgeModule,
   ],
   controllers: [OnboardingController],
-  providers: [OnboardingService],
+  providers: [OnboardingService, ClaudeOAuthService],
   exports: [OnboardingService],
 })
 export class OnboardingModule {}
