@@ -74,7 +74,7 @@ export class OnboardingController {
       if (documentIds && documentIds.length > 0) {
         // Process asynchronously — don't block the response
         this.onboardingService
-          .processDocumentsInOrder(documentIds)
+          .processDocumentsInOrder(documentIds, user.id)
           .catch((error) => {
             this.logger.error(
               `Background onboarding document processing failed: ${error}`,

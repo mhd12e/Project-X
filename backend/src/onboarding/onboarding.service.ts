@@ -30,7 +30,21 @@ export class OnboardingService {
 
     const allCompleted = steps.every((s) => s.completed);
 
-    return { steps, completed: allCompleted };
+    // Check if knowledge documents are still being processed
+    const knowledgeAnswer = answers.find((a) => a.stepId === 'knowledge_upload');
+    const documentIds =
+      (knowledgeAnswer?.answer?.['documentIds'] as string[] | undefined) ?? [];
+    let processingDocuments = false;
+    if (documentIds.length > 0) {
+      const docs = await Promise.all(
+        documentIds.map((id) => this.knowledgeService.findDocumentById(id)),
+      );
+      processingDocuments = docs.some(
+        (d) => d && d.status !== 'completed' && d.status !== 'failed',
+      );
+    }
+
+    return { steps, completed: allCompleted, processingDocuments };
   }
 
   async saveStepAnswer(
@@ -57,7 +71,10 @@ export class OnboardingService {
 
     // Check if all steps are now completed
     const status = await this.getStatus(userId);
-    if (status.completed) {
+
+    // Only mark onboarding complete if all steps are done AND
+    // no documents are still being processed
+    if (status.completed && !status.processingDocuments) {
       await this.usersService.completeOnboarding(userId);
     }
 
@@ -81,8 +98,12 @@ export class OnboardingService {
   /**
    * Processes uploaded documents sequentially using the same knowledge pipeline.
    * Called after the user confirms document order during onboarding.
+   * Completes onboarding after all documents finish processing.
    */
-  async processDocumentsInOrder(documentIds: string[]): Promise<void> {
+  async processDocumentsInOrder(
+    documentIds: string[],
+    userId: string,
+  ): Promise<void> {
     for (const docId of documentIds) {
       const doc = await this.knowledgeService.findDocumentById(docId);
       if (!doc) {
@@ -96,6 +117,13 @@ export class OnboardingService {
           `Onboarding: failed to process document ${docId}: ${error}`,
         );
       }
+    }
+
+    // All documents processed — now complete onboarding
+    const status = await this.getStatus(userId);
+    if (status.completed) {
+      await this.usersService.completeOnboarding(userId);
+      this.logger.log(`Onboarding completed for user ${userId}`);
     }
   }
 }

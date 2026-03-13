@@ -43,7 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAppDispatch, useAppSelector } from '@/store';
-import { setOnboardingCompleted } from '@/store/auth.slice';
+import { setOnboardingCompleted, fetchMe } from '@/store/auth.slice';
 import { useTheme, type Theme } from '@/hooks/use-theme';
 import {
   useKnowledgeActivity,
@@ -167,6 +167,8 @@ interface StepComponentProps {
   onChange: (answer: Record<string, unknown>, valid: boolean) => void;
   /** Signals from parent that processing has started (used by knowledge step) */
   processing?: boolean;
+  /** Called when document processing finishes (used by knowledge step) */
+  onProcessingDone?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +533,7 @@ function MiniActivityFeed({ documentIds }: { documentIds: string[] }) {
 
 type UploadPhase = 'upload' | 'processing' | 'done';
 
-function KnowledgeUploadStep({ initialAnswer, onChange, processing }: StepComponentProps) {
+function KnowledgeUploadStep({ initialAnswer, onChange, processing, onProcessingDone }: StepComponentProps) {
   const [files, setFiles] = useState<UploadedFile[]>(
     (initialAnswer.files as UploadedFile[]) ?? [],
   );
@@ -576,13 +578,14 @@ function KnowledgeUploadStep({ initialAnswer, onChange, processing }: StepCompon
         if (allDone) {
           setUploadPhase('done');
           clearInterval(interval);
+          onProcessingDone?.();
         }
       } catch {
         // ignore polling errors
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [uploadPhase, processingDocIds]);
+  }, [uploadPhase, processingDocIds, onProcessingDone]);
 
   // Notify parent of validity
   useEffect(() => {
@@ -850,6 +853,7 @@ interface OnboardingStepStatus {
 interface OnboardingStatus {
   steps: OnboardingStepStatus[];
   completed: boolean;
+  processingDocuments?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -882,19 +886,55 @@ export function OnboardingPage() {
 
   // Track knowledge processing state separately from step navigation
   const [knowledgeProcessing, setKnowledgeProcessing] = useState(false);
+  const [knowledgeProcessingDone, setKnowledgeProcessingDone] = useState(false);
 
-  // Fetch onboarding status on mount
+  const handleProcessingDone = useCallback(() => {
+    setKnowledgeProcessingDone(true);
+  }, []);
+
+  // Fetch onboarding status and saved answers on mount
   useEffect(() => {
-    api
-      .get<OnboardingStatus>('/onboarding/status')
-      .then(({ data }) => {
+    Promise.all([
+      api.get<OnboardingStatus>('/onboarding/status'),
+      api.get<Record<string, Record<string, unknown>>>('/onboarding/answers'),
+    ])
+      .then(([statusRes, answersRes]) => {
+        const data = statusRes.data;
+        const savedAnswers = answersRes.data;
         setStatus(data);
-        if (data.completed) {
+        setAnswers(savedAnswers);
+
+        // If all steps answered AND no documents still processing → done
+        if (data.completed && !data.processingDocuments) {
           dispatch(setOnboardingCompleted());
           navigate('/app', { replace: true });
-        } else {
-          const firstIncomplete = data.steps.findIndex((s) => !s.completed);
-          if (firstIncomplete >= 0) setCurrentIdx(firstIncomplete);
+          return;
+        }
+
+        // If knowledge_upload was answered and documents are still processing,
+        // resume directly on that step in processing mode
+        const knowledgeStepIdx = data.steps.findIndex(
+          (s) => s.id === 'knowledge_upload',
+        );
+        if (
+          data.processingDocuments &&
+          knowledgeStepIdx >= 0 &&
+          data.steps[knowledgeStepIdx].completed
+        ) {
+          setCurrentIdx(knowledgeStepIdx);
+          setKnowledgeProcessing(true);
+          setPhase('steps');
+          return;
+        }
+
+        // Otherwise go to first incomplete step
+        const firstIncomplete = data.steps.findIndex((s) => !s.completed);
+        if (firstIncomplete >= 0) {
+          setCurrentIdx(firstIncomplete);
+          // If user has completed at least one step before, skip intro
+          if (firstIncomplete > 0) {
+            setPhase('steps');
+          }
         }
       })
       .catch(() => toast.error('Failed to load onboarding status'))
@@ -953,7 +993,7 @@ export function OnboardingPage() {
           // The "Finish" button will appear once processing is done
         } else {
           // No files uploaded — skip processing, finish onboarding
-          finishOnboarding(result.data);
+          finishOnboarding();
         }
       } catch {
         toast.error('Failed to save. Please try again.');
@@ -972,8 +1012,8 @@ export function OnboardingPage() {
       );
       setStatus(result.data);
 
-      if (result.data.completed) {
-        finishOnboarding(result.data);
+      if (result.data.completed && !result.data.processingDocuments) {
+        finishOnboarding();
       } else if (currentIdx < totalSteps - 1) {
         transitionToStep(currentIdx + 1);
       }
@@ -984,12 +1024,13 @@ export function OnboardingPage() {
     }
   };
 
-  const finishOnboarding = (_status: OnboardingStatus) => {
+  const finishOnboarding = () => {
     setStepsExiting(true);
     setTimeout(() => {
       setPhase('finishing');
     }, 500);
     setTimeout(() => {
+      dispatch(fetchMe());
       dispatch(setOnboardingCompleted());
       navigate('/app', { replace: true });
     }, 2500);
@@ -1006,10 +1047,10 @@ export function OnboardingPage() {
 
   const isCurrentValid = currentStep ? validity[currentStep.id] === true : false;
 
-  // For knowledge_upload: allow skipping (0 files) or submitting with files
+  // For knowledge_upload: allow skipping (0 files), submitting with files, or finishing after done
   const isKnowledgeStep = currentStep?.id === 'knowledge_upload';
   const canProceed = isKnowledgeStep
-    ? !knowledgeProcessing // Can always proceed (skip or submit)
+    ? knowledgeProcessingDone || !knowledgeProcessing // Can proceed when not processing or when done
     : isCurrentValid;
 
   const StepComponent = currentStep ? STEP_COMPONENTS[currentStep.id] : null;
@@ -1077,11 +1118,18 @@ export function OnboardingPage() {
   let nextButtonLabel: React.ReactNode;
   if (saving) {
     nextButtonLabel = <Loader2 className="h-3.5 w-3.5 animate-spin" />;
-  } else if (isKnowledgeStep && knowledgeProcessing) {
+  } else if (isKnowledgeStep && knowledgeProcessingDone) {
     nextButtonLabel = (
       <>
         Finish
         <Check className="h-3.5 w-3.5" />
+      </>
+    );
+  } else if (isKnowledgeStep && knowledgeProcessing) {
+    nextButtonLabel = (
+      <>
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Processing...
       </>
     );
   } else if (isKnowledgeStep && knowledgeDocIds.length === 0) {
@@ -1115,9 +1163,9 @@ export function OnboardingPage() {
   }
 
   const handleNextOrFinish = () => {
-    if (isKnowledgeStep && knowledgeProcessing) {
-      // Processing is in progress or done — finish onboarding
-      finishOnboarding(status!);
+    if (isKnowledgeStep && knowledgeProcessingDone) {
+      // All documents processed — finish onboarding
+      finishOnboarding();
     } else {
       handleNext();
     }
@@ -1176,6 +1224,7 @@ export function OnboardingPage() {
                     initialAnswer={answers[currentStep.id] ?? {}}
                     onChange={handleChange}
                     processing={isKnowledgeStep ? knowledgeProcessing : undefined}
+                    onProcessingDone={isKnowledgeStep ? handleProcessingDone : undefined}
                   />
                 )}
               </CardContent>
