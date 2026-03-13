@@ -476,6 +476,9 @@ export function OnboardingPage() {
     }, 350);
   };
 
+  // Transition state for steps → finishing crossfade
+  const [stepsExiting, setStepsExiting] = useState(false);
+
   const handleNext = async () => {
     if (!currentStep) return;
     setSaving(true);
@@ -487,12 +490,15 @@ export function OnboardingPage() {
       setStatus(result.data);
 
       if (result.data.completed) {
-        // Show finishing animation
-        setPhase('finishing');
+        // Fade out steps phase first, then show finishing
+        setStepsExiting(true);
+        setTimeout(() => {
+          setPhase('finishing');
+        }, 500);
         setTimeout(() => {
           dispatch(setOnboardingCompleted());
           navigate('/app', { replace: true });
-        }, 1500);
+        }, 2500);
       } else if (currentIdx < totalSteps - 1) {
         transitionToStep(currentIdx + 1);
       }
@@ -524,20 +530,27 @@ export function OnboardingPage() {
     );
   }
 
-  // -- Finishing phase: quick success flash --
+  // -- Finishing phase: staggered success animation --
   if (phase === 'finishing') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Meta title="Onboarding" />
-        <FadeIn delay={0} duration={500}>
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <div className="flex flex-col items-center gap-5 text-center">
+          <FadeIn delay={100} duration={600}>
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary mx-auto">
               <Check className="h-8 w-8" />
             </div>
-            <h2 className="text-xl font-semibold">You&apos;re all set!</h2>
+          </FadeIn>
+          <FadeIn delay={400} duration={600}>
+            <h2 className="text-2xl font-bold tracking-tight">You&apos;re all set!</h2>
+          </FadeIn>
+          <FadeIn delay={650} duration={600}>
             <p className="text-sm text-muted-foreground">Taking you to your workspace...</p>
-          </div>
-        </FadeIn>
+          </FadeIn>
+          <FadeIn delay={900} duration={600}>
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/50 mt-2" />
+          </FadeIn>
+        </div>
       </div>
     );
   }
@@ -564,7 +577,13 @@ export function OnboardingPage() {
 
   // -- Steps phase --
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div
+      className="flex min-h-screen flex-col bg-background transition-all duration-500 ease-out"
+      style={{
+        opacity: stepsExiting ? 0 : 1,
+        transform: stepsExiting ? 'scale(0.97) translateY(-8px)' : 'scale(1) translateY(0)',
+      }}
+    >
       <Meta title="Onboarding" />
 
       {/* Top bar with progress */}
