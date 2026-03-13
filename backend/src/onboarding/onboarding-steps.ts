@@ -18,6 +18,11 @@ export interface OnboardingStepDefinition {
 
 export const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   {
+    id: 'theme_preference',
+    title: 'Choose your theme',
+    description: 'Pick how you want Project X to look.',
+  },
+  {
     id: 'business_context',
     title: 'About your business',
     description: 'Help us understand your business so the AI can provide better insights.',

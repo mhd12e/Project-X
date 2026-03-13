@@ -18,6 +18,7 @@ export function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fadingOut, setFadingOut] = useState(false);
 
   useEffect(() => {
     if (needsSetup === null) {
@@ -30,9 +31,11 @@ export function RegisterPage() {
   }, [dispatch]);
 
   useEffect(() => {
-    if (accessToken && user) {
-      navigate(user.onboardingCompleted ? '/app' : '/app/onboarding', { replace: true });
-    }
+    if (!accessToken || !user) return;
+    const target = user.onboardingCompleted ? '/app' : '/app/onboarding';
+    setFadingOut(true);
+    const timer = setTimeout(() => navigate(target, { replace: true }), 500);
+    return () => clearTimeout(timer);
   }, [accessToken, user, navigate]);
 
   // Registration disabled once a user exists
@@ -46,7 +49,13 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div
+      className="flex min-h-screen items-center justify-center bg-background p-4 transition-all duration-500 ease-out"
+      style={{
+        opacity: fadingOut ? 0 : 1,
+        transform: fadingOut ? 'scale(0.97) translateY(-8px)' : 'scale(1) translateY(0)',
+      }}
+    >
       <Meta title="Create Account" description="Set up your Project X administrator account." />
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2">
