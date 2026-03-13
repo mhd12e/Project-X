@@ -78,13 +78,13 @@ function getBreadcrumbs(pathname: string, dynamicLabel: string | null): Crumb[] 
   return crumbs;
 }
 
-export function TopBar() {
+export function TopBar({ className }: { className?: string }) {
   const location = useLocation();
   const dynamicLabel = useDynamicLabel(location.pathname);
   const breadcrumbs = getBreadcrumbs(location.pathname, dynamicLabel);
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+    <header className={`flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4 ${className ?? ''}`}>
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-2 h-4" />
       <Breadcrumb>

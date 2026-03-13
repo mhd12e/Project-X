@@ -74,6 +74,10 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   search_knowledge: Search,
   get_document_info: FileText,
   list_documents: BookOpen,
+  WebSearch: Globe,
+  web_search: Globe,
+  WebFetch: Globe,
+  web_fetch: Globe,
 };
 
 function getToolIcon(toolName: string) {

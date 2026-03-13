@@ -120,7 +120,9 @@ export class KnowledgeAgentService {
 
       const mcpServer = this.createMcpServer(document.id);
       // For images, the agent needs the Read tool to view the image file
-      const tools = isImage ? ['Read'] : ([] as string[]);
+      const tools = isImage
+        ? ['Read', 'WebSearch', 'WebFetch']
+        : ['WebSearch', 'WebFetch'];
 
       this.emit(
         document.id,
@@ -254,6 +256,10 @@ export class KnowledgeAgentService {
             detail = 'Listing all documents';
           } else if (toolName === 'Read') {
             detail = `Reading: ${input?.file_path ?? '?'}`;
+          } else if (toolName === 'WebSearch' || toolName === 'web_search') {
+            detail = `Query: "${input?.query ?? '?'}"`;
+          } else if (toolName === 'WebFetch' || toolName === 'web_fetch') {
+            detail = `URL: ${input?.url ?? '?'}`;
           }
 
           this.emit(documentId, 'tool_call', `Calling ${toolName}`, detail);

@@ -22,11 +22,15 @@ const CHAT_SYSTEM_PROMPT = `You are the AI Assistant for Project X, a business i
 - Browse all available knowledge via list_documents tool
 - Provide analysis, summaries, and insights based on stored business knowledge
 - Access external data via Apify — web scraping, data extraction, running actors, and storage
+- Search the web in real-time for up-to-date information using the WebSearch tool
+- Fetch and read web pages using the WebFetch tool
 
 # Guidelines
 - ALWAYS search the knowledge base when a question could be answered by stored documents
 - Cite your sources: mention the document name and section when using retrieved knowledge
-- If no relevant knowledge is found, say so honestly and answer from general knowledge
+- If no relevant knowledge is found, try searching the web before answering from general knowledge
+- Use WebSearch when the user asks about current events, recent data, or anything that may have changed after your training
+- Use WebFetch to read specific web pages or URLs the user provides
 - Use Apify tools when the user asks for web scraping, crawling, data extraction from external websites, or running Apify actors
 - Be concise and actionable in your responses
 - Use markdown formatting for readability
@@ -108,6 +112,9 @@ export class ChatAgentService {
       let isInToolBlock = false;
       const toolCalls: Array<{ toolName: string; description: string; input?: string }> = [];
       const sources: Array<{ documentId: string; sourceFile: string; section: string; topic: string; score: number }> = [];
+      // Built-in tools (handled by Agent SDK internally) — need to emit results when they finish
+      const BUILTIN_TOOLS = new Set(['WebSearch', 'WebFetch', 'Read', 'web_search', 'web_fetch']);
+      const pendingBuiltinTools: Array<{ toolName: string; input?: Record<string, unknown> }> = [];
       // Ordered segments — mirrors the frontend streaming layout for exact reconstruction
       const segments: Array<Record<string, unknown>> = [];
 
@@ -131,7 +138,7 @@ export class ChatAgentService {
         options: {
           systemPrompt: CHAT_SYSTEM_PROMPT,
           model: this.configService.get<string>('CLAUDE_MODEL', 'claude-sonnet-4-6'),
-          tools: [] as string[],
+          tools: ['WebSearch', 'WebFetch'],
           mcpServers: mcpServers,
           permissionMode: 'bypassPermissions' as const,
           allowDangerouslySkipPermissions: true,
@@ -147,6 +154,21 @@ export class ChatAgentService {
           if (!event) continue;
 
           const eventType = event.type as string;
+
+          // When a new API response starts, all pending built-in tools have completed
+          if (eventType === 'message_start' && pendingBuiltinTools.length > 0) {
+            for (const pending of pendingBuiltinTools) {
+              const resultMsg = ChatAgentService.describeBuiltinResult(pending.toolName, pending.input);
+              this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
+              for (let i = segments.length - 1; i >= 0; i--) {
+                if (segments[i].type === 'tool_call' && segments[i].toolName === pending.toolName && !segments[i].toolResult) {
+                  segments[i].toolResult = resultMsg;
+                  break;
+                }
+              }
+            }
+            pendingBuiltinTools.length = 0;
+          }
 
           if (eventType === 'content_block_start') {
             const block = event.content_block as Record<string, unknown> | undefined;
@@ -220,6 +242,11 @@ export class ChatAgentService {
               const gen = this.activeGenerations.get(conversationId);
               if (gen) gen.activities.push({ type: 'tool_call', toolName: currentToolName, toolInput: inputStr, description });
 
+              // Track built-in tools so we can emit results when the next API response starts
+              if (BUILTIN_TOOLS.has(currentToolName)) {
+                pendingBuiltinTools.push({ toolName: currentToolName, input: parsedInput });
+              }
+
               currentToolName = '';
               currentToolInputBuffer = '';
             } else if (inToolDepth > 0) {
@@ -246,6 +273,19 @@ export class ChatAgentService {
           }
         }
       }
+
+      // Flush any remaining pending built-in tools (e.g. if the response ended right after tool use)
+      for (const pending of pendingBuiltinTools) {
+        const resultMsg = ChatAgentService.describeBuiltinResult(pending.toolName, pending.input);
+        this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
+        for (let i = segments.length - 1; i >= 0; i--) {
+          if (segments[i].type === 'tool_call' && segments[i].toolName === pending.toolName && !segments[i].toolResult) {
+            segments[i].toolResult = resultMsg;
+            break;
+          }
+        }
+      }
+      pendingBuiltinTools.length = 0;
 
       // Save the assistant response with activity metadata + segments for exact UI reconstruction
       const metadata: Record<string, unknown> = {};
@@ -306,6 +346,24 @@ export class ChatAgentService {
       return 'Browsing all documents in knowledge base';
     }
 
+    // Web search/fetch tools
+    if (toolName === 'WebSearch' || toolName === 'web_search') {
+      const q = input?.query as string | undefined;
+      return q ? `Searching the web for "${q}"` : 'Searching the web';
+    }
+    if (toolName === 'WebFetch' || toolName === 'web_fetch') {
+      const url = input?.url as string | undefined;
+      if (url) {
+        try {
+          const hostname = new URL(url).hostname.replace('www.', '');
+          return `Fetching ${hostname}`;
+        } catch {
+          return `Fetching web page`;
+        }
+      }
+      return 'Fetching web page';
+    }
+
     // Apify tools — extract meaningful context from input
     if (toolName.includes('actor') || toolName.includes('apify') || toolName.startsWith('apify_')) {
       const actorId = input?.actorId as string | undefined;
@@ -349,6 +407,31 @@ export class ChatAgentService {
     }
 
     return readable;
+  }
+
+  /** Generate a result description for built-in Agent SDK tools (where we don't have the actual output) */
+  static describeBuiltinResult(toolName: string, input?: Record<string, unknown>): string {
+    if (toolName === 'WebSearch' || toolName === 'web_search') {
+      const q = input?.query as string | undefined;
+      return q ? `Web search completed for "${q}"` : 'Web search completed';
+    }
+    if (toolName === 'WebFetch' || toolName === 'web_fetch') {
+      const url = input?.url as string | undefined;
+      if (url) {
+        try {
+          const hostname = new URL(url).hostname.replace('www.', '');
+          return `Fetched content from ${hostname}`;
+        } catch {
+          return 'Web page fetched';
+        }
+      }
+      return 'Web page fetched';
+    }
+    if (toolName === 'Read') {
+      const filePath = input?.file_path as string | undefined;
+      return filePath ? `File read: ${filePath}` : 'File read';
+    }
+    return 'Completed';
   }
 
   private createMcpServer(

@@ -51,4 +51,5 @@ Before processing, check if related documents already exist. If the current docu
 - Prefer structured information when possible (extract entities, specs, data points)
 - When the document references external concepts or prior documents, use search_knowledge to retrieve context and produce richer, more connected chunks
 - External information must never replace the original document content
-- Process ALL content in the document — do not skip sections`;
+- Process ALL content in the document — do not skip sections
+- You have access to WebSearch and WebFetch tools — use them when the document references external sources, standards, or data that would help you produce better, more accurate chunks. For example, if a document mentions a specific regulation, standard, or external dataset, you can look it up to enrich your understanding. However, always prioritize the original document content over web-sourced information.`;

@@ -7,8 +7,8 @@ export function DashboardLayout() {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <TopBar />
+      <SidebarInset className="max-h-screen overflow-hidden">
+        <TopBar className="sticky top-0 z-10 shrink-0" />
         <div className="flex flex-1 flex-col overflow-auto p-6">
           <Outlet />
         </div>
