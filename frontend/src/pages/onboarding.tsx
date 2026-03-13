@@ -375,6 +375,7 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
   const [phase, setPhase] = useState<ClaudeSignInPhase>('idle');
   const [code, setCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [oauthUrl, setOauthUrl] = useState('');
   const cancelledRef = useRef(false);
 
   // Auto-complete if already configured or previously completed
@@ -396,8 +397,9 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — reset cancelledRef on mount to handle React strict mode double-mount
   useEffect(() => {
+    cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
       api.post('/onboarding/claude-oauth/cancel').catch(() => {});
@@ -410,7 +412,8 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
     try {
       const res = await api.post<{ oauthUrl: string }>('/onboarding/claude-oauth/initiate');
       if (cancelledRef.current) return;
-      // Open the OAuth URL in a new tab
+      setOauthUrl(res.data.oauthUrl);
+      // Open the OAuth URL in a new tab (may be blocked by popup blocker)
       window.open(res.data.oauthUrl, '_blank');
       setPhase('waiting_for_code');
     } catch (err) {
@@ -487,9 +490,18 @@ function ClaudeSignInStep({ initialAnswer, onChange }: StepComponentProps) {
         <div className="space-y-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              A new tab has been opened. Complete the authorization in Claude&apos;s website,
-              then paste the code below.
+              Complete the authorization in Claude&apos;s website, then paste the code below.
             </p>
+            {oauthUrl && (
+              <a
+                href={oauthUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Click here if the tab didn&apos;t open automatically
+              </a>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="oauth-code" className="text-sm font-medium">Authorization code</Label>

@@ -1,26 +1,28 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const TOKEN_FILE = '/app/uploads/.config/claude-oauth-token';
-const URL_TIMEOUT = 30_000;
-const CODE_TIMEOUT = 30_000;
 const SESSION_TIMEOUT = 5 * 60_000;
+const URL_EXTRACT_TIMEOUT = 30_000;
+const CODE_SUBMIT_TIMEOUT = 30_000;
 
-/** Strip ANSI escape codes from TUI output */
+/** Strip ANSI escape sequences and TTY control codes from TUI output */
 function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07/g, '');
+  return text
+    // Standard CSI sequences: ESC[...letter and ESC[?...letter
+    .replace(/\x1b\[[\?]?[0-9;]*[a-zA-Z]/g, '')
+    // ESC sequences like ESC>0q, ESC(B, ESC]...
+    .replace(/\x1b[>=()\]][^\x1b]*/g, '')
+    // Carriage returns from raw TTY
+    .replace(/\r/g, '');
 }
 
 interface OAuthSession {
-  process: ChildProcessWithoutNullStreams;
-  outputBuffer: string;
-  oauthUrl: string | null;
-  status: 'waiting_for_url' | 'waiting_for_code' | 'waiting_for_result' | 'success' | 'error';
-  token: string | null;
-  error: string | null;
+  process: ChildProcess;
+  output: string;
+  oauthUrl: string;
   sessionTimer: ReturnType<typeof setTimeout>;
 }
 
@@ -57,27 +59,29 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Start the OAuth flow.
-   * Uses `script -qc` to provide a pseudo-TTY because `claude setup-token`
-   * is a TUI program (Ink/React) that requires raw mode on stdin.
+   * Start the OAuth flow by spawning `claude setup-token` with a pseudo-TTY.
+   * The CLI prints an authorization URL and waits for the user to paste a code.
+   * We extract the URL and return it to the frontend.
    */
   async initiateOAuth(userId: string): Promise<{ oauthUrl: string }> {
+    // Clean up any previous session
     this.cleanup(userId);
 
-    return new Promise((resolve, reject) => {
-      // `script -q -c "command" /dev/null` allocates a pseudo-TTY
-      const proc = spawn('script', ['-q', '-c', 'claude setup-token', '/dev/null'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, NO_COLOR: '1' },
-      });
+    return new Promise<{ oauthUrl: string }>((resolve, reject) => {
+      // Use `script` to provide a pseudo-TTY — the Ink-based TUI requires one
+      const proc = spawn(
+        'script',
+        ['-q', '-c', 'claude setup-token', '/dev/null'],
+        { env: { ...process.env, TERM: 'dumb', NO_COLOR: '1' } },
+      );
+
+      let output = '';
+      let urlResolved = false;
 
       const session: OAuthSession = {
         process: proc,
-        outputBuffer: '',
-        oauthUrl: null,
-        status: 'waiting_for_url',
-        token: null,
-        error: null,
+        output: '',
+        oauthUrl: '',
         sessionTimer: setTimeout(() => {
           this.logger.warn(`OAuth session timed out for user ${userId}`);
           this.cleanup(userId);
@@ -86,130 +90,198 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
 
       this.sessions.set(userId, session);
 
-      let resolved = false;
+      proc.stdout?.on('data', (data: Buffer) => {
+        const chunk = data.toString();
+        output += chunk;
+        session.output = output;
 
-      const urlTimeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          this.logger.error(
-            `URL timeout. Buffer so far:\n${stripAnsi(session.outputBuffer).slice(0, 500)}`,
-          );
-          this.cleanup(userId);
-          reject(new Error('Timed out waiting for OAuth URL from claude setup-token'));
-        }
-      }, URL_TIMEOUT);
+        if (!urlResolved) {
+          const clean = stripAnsi(output);
+          const urlStart = clean.indexOf('https://claude.ai/oauth/authorize');
+          if (urlStart !== -1) {
+            // URL may be line-wrapped across multiple lines in the TUI.
+            // Grab from the URL start until "Paste code" or a double newline.
+            const rest = clean.substring(urlStart);
+            const endIdx = rest.search(/\s*Paste\s+code|\n\s*\n/);
+            const rawUrl = endIdx !== -1 ? rest.substring(0, endIdx) : rest;
+            // Remove all whitespace that may have been injected by line wrapping
+            const oauthUrl = rawUrl.replace(/\s+/g, '');
 
-      const handleOutput = (data: Buffer) => {
-        session.outputBuffer += data.toString();
-        const clean = stripAnsi(session.outputBuffer);
-
-        if (!session.oauthUrl) {
-          const urlMatch = clean.match(
-            /(https:\/\/claude\.ai\/oauth\/authorize\S+)/,
-          );
-          if (urlMatch) {
-            // The URL may be line-wrapped by the TUI — reassemble by removing whitespace
-            session.oauthUrl = urlMatch[1].replace(/\s+/g, '');
-            session.status = 'waiting_for_code';
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(urlTimeout);
-              this.logger.log('OAuth URL captured');
-              resolve({ oauthUrl: session.oauthUrl });
-            }
+            session.oauthUrl = oauthUrl;
+            urlResolved = true;
+            this.logger.log(`OAuth URL extracted for user ${userId} (${oauthUrl.length} chars)`);
+            resolve({ oauthUrl });
           }
         }
-      };
+      });
 
-      proc.stdout.on('data', handleOutput);
-      proc.stderr.on('data', handleOutput);
+      proc.stderr?.on('data', (data: Buffer) => {
+        this.logger.warn(`setup-token stderr: ${data.toString().slice(0, 200)}`);
+      });
 
       proc.on('error', (err) => {
-        this.logger.error(`claude setup-token process error: ${err.message}`);
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(urlTimeout);
-          this.cleanup(userId);
-          reject(new Error(`Failed to start claude setup-token: ${err.message}`));
+        this.logger.error(`Failed to spawn setup-token: ${err}`);
+        this.cleanup(userId);
+        if (!urlResolved) {
+          urlResolved = true;
+          reject(new Error('Failed to start Claude setup-token'));
         }
       });
 
       proc.on('close', (code) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(urlTimeout);
-          this.logger.error(
-            `Process exited (code ${code}) before URL. Buffer:\n${stripAnsi(session.outputBuffer).slice(0, 500)}`,
-          );
-          this.cleanup(userId);
-          reject(new Error(`claude setup-token exited with code ${code} before providing URL`));
+        this.logger.log(`setup-token process exited (code ${code}) for user ${userId}`);
+        if (!urlResolved) {
+          urlResolved = true;
+          reject(new Error('setup-token exited before producing an OAuth URL'));
         }
       });
+
+      // Safety timeout for URL extraction
+      setTimeout(() => {
+        if (!urlResolved) {
+          urlResolved = true;
+          this.logger.error(
+            `Timed out waiting for OAuth URL. Output: ${stripAnsi(output).slice(0, 500)}`,
+          );
+          this.cleanup(userId);
+          reject(new Error('Timed out waiting for OAuth URL from setup-token'));
+        }
+      }, URL_EXTRACT_TIMEOUT);
     });
   }
 
-  /** Submit the authorization code to the running process */
-  async submitCode(userId: string, code: string): Promise<{ success: boolean; token?: string; error?: string }> {
+  /**
+   * Submit the authorization code to the running `claude setup-token` process.
+   * The CLI exchanges it for a long-lived token (sk-ant-oat01-…).
+   * On success it prints the token and exits; on failure it prints an error and waits.
+   */
+  async submitCode(
+    userId: string,
+    rawCode: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const code = rawCode.trim();
     const session = this.sessions.get(userId);
+
     if (!session) {
-      return { success: false, error: 'No active OAuth session. Please start the flow again.' };
-    }
-
-    if (session.status !== 'waiting_for_code') {
-      return { success: false, error: `Session is in unexpected state: ${session.status}` };
-    }
-
-    return new Promise((resolve) => {
-      session.status = 'waiting_for_result';
-      const bufferBefore = session.outputBuffer.length;
-
-      const timeout = setTimeout(() => {
-        resolve({ success: false, error: 'Timed out waiting for result. Please try again.' });
-        this.cleanup(userId);
-      }, CODE_TIMEOUT);
-
-      const checkResult = (data: Buffer) => {
-        session.outputBuffer += data.toString();
-        const newOutput = stripAnsi(session.outputBuffer.slice(bufferBefore));
-
-        // Check for token (success)
-        const tokenMatch = newOutput.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
-        if (tokenMatch) {
-          clearTimeout(timeout);
-          session.token = tokenMatch[1];
-          session.status = 'success';
-          this.persistToken(session.token);
-          session.process.stdout.off('data', checkResult);
-          session.process.stderr.off('data', checkResult);
-          resolve({ success: true, token: session.token });
-          this.cleanup(userId);
-          return;
-        }
-
-        // Check for error
-        if (newOutput.includes('OAuth error') || newOutput.includes('Invalid code')) {
-          clearTimeout(timeout);
-          session.status = 'error';
-          session.error = 'Invalid code. Please make sure the full code was copied.';
-          session.process.stdout.off('data', checkResult);
-          session.process.stderr.off('data', checkResult);
-          resolve({ success: false, error: session.error });
-          this.cleanup(userId);
-          return;
-        }
+      return {
+        success: false,
+        error: 'No active OAuth session. Please start the flow again.',
       };
+    }
 
-      session.process.stdout.on('data', checkResult);
-      session.process.stderr.on('data', checkResult);
+    const proc = session.process;
+    if (proc.killed || !proc.stdin?.writable) {
+      this.cleanup(userId);
+      return {
+        success: false,
+        error: 'OAuth process is no longer running. Please start again.',
+      };
+    }
 
-      // Write the code to the pseudo-TTY stdin
-      session.process.stdin.write(code + '\n');
+    return new Promise<{ success: boolean; error?: string }>((resolve) => {
+      const outputBefore = session.output.length;
+
+      // Write the code followed by carriage return (raw-mode TTY needs \r, not \n)
+      proc.stdin!.write(code + '\r');
+      this.logger.log(`Code submitted for user ${userId} (${code.length} chars)`);
+
+      let settled = false;
+
+      const checkInterval = setInterval(() => {
+        if (settled) return;
+
+        const newOutput = session.output.substring(outputBefore);
+        const clean = stripAnsi(newOutput);
+
+        // Success: CLI prints the long-lived token
+        const tokenMatch = clean.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
+        if (tokenMatch) {
+          settled = true;
+          clearInterval(checkInterval);
+          const token = tokenMatch[0];
+          this.persistToken(token);
+          this.logger.log(`OAuth token obtained and persisted (${token.length} chars)`);
+          this.cleanup(userId);
+          resolve({ success: true });
+          return;
+        }
+
+        // Failure: CLI prints an error and waits for Enter to retry
+        if (clean.includes('OAuth error')) {
+          const errorMatch = clean.match(/OAuth error:\s*(.+)/);
+          if (errorMatch) {
+            settled = true;
+            clearInterval(checkInterval);
+            const errorMsg = errorMatch[1].trim();
+            this.logger.error(`OAuth error from CLI: ${errorMsg}`);
+            // Kill the process — user will need to start fresh
+            this.cleanup(userId);
+            resolve({ success: false, error: errorMsg });
+            return;
+          }
+        }
+      }, 300);
+
+      // If process exits, check final output
+      const onClose = () => {
+        if (settled) return;
+        // Give a brief moment for any remaining stdout to flush
+        setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          clearInterval(checkInterval);
+
+          const newOutput = session.output.substring(outputBefore);
+          const clean = stripAnsi(newOutput);
+
+          const tokenMatch = clean.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
+          if (tokenMatch) {
+            this.persistToken(tokenMatch[0]);
+            this.logger.log(`OAuth token obtained on exit (${tokenMatch[0].length} chars)`);
+            this.cleanup(userId);
+            resolve({ success: true });
+          } else {
+            this.logger.error(`Process exited without token. Output: ${clean.slice(0, 500)}`);
+            this.cleanup(userId);
+            resolve({
+              success: false,
+              error: 'Authentication process ended without producing a token.',
+            });
+          }
+        }, 500);
+      };
+      proc.on('close', onClose);
+
+      // Timeout
+      setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        clearInterval(checkInterval);
+        proc.removeListener('close', onClose);
+        this.logger.error(
+          `Code submission timed out. New output: ${stripAnsi(session.output.substring(outputBefore)).slice(0, 500)}`,
+        );
+        resolve({
+          success: false,
+          error: 'Timed out waiting for authentication result. Please try again.',
+        });
+      }, CODE_SUBMIT_TIMEOUT);
     });
   }
 
-  /** Cancel an active OAuth session */
+  /** Cancel / clean up an active OAuth session */
   cancel(userId: string): void {
     this.cleanup(userId);
+  }
+
+  private cleanup(userId: string): void {
+    const session = this.sessions.get(userId);
+    if (!session) return;
+    clearTimeout(session.sessionTimer);
+    if (!session.process.killed) {
+      session.process.kill();
+    }
+    this.sessions.delete(userId);
   }
 
   private persistToken(token: string): void {
@@ -223,21 +295,8 @@ export class ClaudeOAuthService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('Claude OAuth token persisted and set in environment');
     } catch (err) {
       this.logger.error(`Failed to persist token: ${err}`);
+      // Still set the env var even if file persistence fails
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = token;
     }
-  }
-
-  private cleanup(userId: string): void {
-    const session = this.sessions.get(userId);
-    if (!session) return;
-
-    clearTimeout(session.sessionTimer);
-    try {
-      session.process.stdin.end();
-      session.process.kill('SIGTERM');
-    } catch {
-      // Process may already be dead
-    }
-    this.sessions.delete(userId);
   }
 }
