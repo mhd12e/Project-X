@@ -383,6 +383,9 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
   const [secondsLeft, setSecondsLeft] = useState(SESSION_TIMEOUT_SEC);
   const [oauthToken, setOauthToken] = useState('');
   const [tokenVisible, setTokenVisible] = useState(false);
+  const [testOutput, setTestOutput] = useState('');
+  const [testRunning, setTestRunning] = useState(false);
+  const [testError, setTestError] = useState('');
   const cancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -495,6 +498,51 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
     setCode('');
     setErrorMsg('');
     handleConnect();
+  };
+
+  const handleTestToken = async () => {
+    setTestRunning(true);
+    setTestOutput('');
+    setTestError('');
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch('/api/onboarding/claude-oauth/test-token', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let gotResult = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6);
+          if (payload === '[DONE]') break;
+          const parsed = JSON.parse(payload) as { type: string; text: string };
+          if (parsed.type === 'delta') {
+            gotResult = true;
+            setTestOutput((prev) => prev + parsed.text);
+          } else if (parsed.type === 'result' && !gotResult) {
+            setTestOutput(parsed.text);
+          } else if (parsed.type === 'error') {
+            setTestError(parsed.text);
+          }
+        }
+      }
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : 'Test failed');
+    } finally {
+      setTestRunning(false);
+    }
   };
 
   return (
@@ -623,6 +671,31 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
               <p className="mt-1 text-[10px] font-mono text-muted-foreground break-all select-all">
                 {tokenVisible ? oauthToken : `${oauthToken.slice(0, 18)}${'•'.repeat(40)}`}
               </p>
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 gap-2"
+            onClick={handleTestToken}
+            disabled={testRunning}
+          >
+            {testRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+            {testRunning ? 'Testing...' : 'Test Token'}
+          </Button>
+
+          {(testOutput || testError) && (
+            <div className={`mt-2 w-full rounded border p-3 text-xs ${
+              testError
+                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300'
+                : 'border-border bg-muted/50 text-foreground'
+            }`}>
+              {testError ? (
+                <p>{testError}</p>
+              ) : (
+                <p className="whitespace-pre-wrap">{testOutput}{testRunning ? '▌' : ''}</p>
+              )}
             </div>
           )}
         </div>

@@ -4,12 +4,14 @@ import {
   Post,
   Param,
   Body,
+  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { randomUUID } from 'crypto';
@@ -130,6 +132,60 @@ export class OnboardingController {
   cancelClaudeOAuth(@CurrentUser() user: User) {
     this.claudeOAuth.cancel(user.id);
     return { ok: true };
+  }
+
+  @Get('claude-oauth/test-token')
+  @ApiOperation({ summary: 'Test the Claude token with a minimal Agent SDK call (SSE)' })
+  async testToken(@Res() res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    if (!this.claudeOAuth.isConfigured()) {
+      res.write(`data: ${JSON.stringify({ type: 'error', text: 'No Claude token configured.' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    try {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+      for await (const message of query({
+        prompt: 'Hello! Tell me about yourself in 2-3 sentences.',
+        options: {
+          maxTurns: 1,
+          permissionMode: 'bypassPermissions' as const,
+          allowDangerouslySkipPermissions: true,
+          tools: [],
+          cwd: '/app',
+        },
+      })) {
+        const msg = message as Record<string, unknown>;
+
+        if (msg.type === 'stream_event') {
+          const event = msg.event as Record<string, unknown>;
+          if (event.type === 'content_block_delta') {
+            const delta = event.delta as Record<string, unknown>;
+            if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+              res.write(`data: ${JSON.stringify({ type: 'delta', text: delta.text })}\n\n`);
+            }
+          }
+        }
+
+        if ('result' in msg && typeof msg.result === 'string' && msg.result) {
+          res.write(`data: ${JSON.stringify({ type: 'result', text: msg.result })}\n\n`);
+        }
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Token test failed: ${errMsg}`);
+      res.write(`data: ${JSON.stringify({ type: 'error', text: errMsg })}\n\n`);
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
   }
 
   /**
