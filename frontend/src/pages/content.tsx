@@ -173,6 +173,9 @@ export function ContentPage(): React.ReactElement {
     if (urlConvId && urlConvId !== activeConversation?.id) {
       dispatch(fetchConversation(urlConvId));
     }
+    if (!urlConvId && activeConversation) {
+      dispatch(clearActiveConversation());
+    }
   }, [urlConvId, activeConversation?.id, dispatch]);
 
   useEffect(() => {
