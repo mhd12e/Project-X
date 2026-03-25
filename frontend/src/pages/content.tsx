@@ -148,6 +148,8 @@ export function ContentPage(): React.ReactElement {
   const lastTitleRef = useRef<string | null>(null);
 
   // Detect conversation type — defaults to 'content' when no conversation is loaded
+  // When a urlConvId exists but conversation hasn't loaded yet, we're in a loading state
+  const isLoadingConv = !!urlConvId && !activeConversation;
   const convType = activeConversation?.type ?? 'content';
   const isChat = convType === 'chat';
 
@@ -305,6 +307,15 @@ export function ContentPage(): React.ReactElement {
   const apiIdeas = convId ? allApiIdeas.filter((i) => i.conversationId === convId) : [];
   const seenIds = new Set(apiIdeas.map((i) => i.id));
   const allIdeas = [...apiIdeas, ...streamedIdeas.filter((i) => !seenIds.has(i.id))];
+
+  // ---- Loading state while conversation type is unknown ----
+  if (isLoadingConv) {
+    return (
+      <div className="flex -m-6 items-center justify-center" style={{ height: 'calc(100% + 3rem)' }}>
+        <Skeleton className="h-8 w-48 rounded-lg" />
+      </div>
+    );
+  }
 
   // ---- Chat-type conversation view ----
   if (isChat) {
