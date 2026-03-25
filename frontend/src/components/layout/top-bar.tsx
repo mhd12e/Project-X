@@ -28,7 +28,7 @@ function truncate(text: string, maxLen: number): string {
 
 function useDynamicLabel(pathname: string): string | null {
   const knowledgeDoc = useAppSelector((s) => s.knowledge.selectedDocument);
-  const chatConv = useAppSelector((s) => s.chat.activeConversation);
+  const chatConv = useAppSelector((s) => s.conversation.activeConversation);
 
   // /app/knowledge/:id → use document title
   if (pathname.match(/^\/app\/knowledge\/[^/]+$/)) {
@@ -37,8 +37,8 @@ function useDynamicLabel(pathname: string): string | null {
       : 'Loading...';
   }
 
-  // /app/chat/:id → use conversation title
-  if (pathname.match(/^\/app\/chat\/[^/]+$/)) {
+  // /app/chat/:id or /app/content/:id → use conversation title
+  if (pathname.match(/^\/app\/(chat|content)\/[^/]+$/)) {
     return chatConv
       ? truncate(chatConv.title || 'New conversation', 40)
       : 'Loading...';

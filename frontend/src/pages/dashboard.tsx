@@ -106,11 +106,12 @@ function formatTimelineLabel(timestamp: string): string {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  auth: '#6366f1',
-  knowledge: '#8b5cf6',
-  chat: '#3b82f6',
-  retrieval: '#06b6d4',
-  agent: '#f59e0b',
+  auth: '#3C3D37',
+  knowledge: '#697565',
+  chat: '#8B9A82',
+  retrieval: '#ECDFCC',
+  agent: '#181C14',
+  content: '#5A6B55',
   system: '#64748b',
 };
 
@@ -570,8 +571,8 @@ function KnowledgeOverview({
                     to={`/app/knowledge/${doc.id}`}
                     className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/50"
                   >
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-purple-500/10">
-                      <FileText className="h-3.5 w-3.5 text-purple-500" />
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                      <FileText className="h-3.5 w-3.5 text-primary" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">

@@ -15,6 +15,7 @@ export enum ActivityCategory {
   CHAT = 'chat',
   RETRIEVAL = 'retrieval',
   AGENT = 'agent',
+  CONTENT = 'content',
   SYSTEM = 'system',
 }
 

@@ -10,7 +10,10 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { RetrievalModule } from './retrieval/retrieval.module';
-import { ChatModule } from './chat/chat.module';
+import { ConversationModule } from './conversation/conversation.module';
+import { ContentModule } from './content/content.module';
+import { ArtifactModule } from './artifact/artifact.module';
+import { VaultModule } from './vault/vault.module';
 import { ActivityModule } from './activity/activity.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 
@@ -106,7 +109,10 @@ import { OnboardingModule } from './onboarding/onboarding.module';
     OnboardingModule,
     KnowledgeModule,
     RetrievalModule,
-    ChatModule,
+    ConversationModule,
+    ContentModule,
+    ArtifactModule,
+    VaultModule,
 
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],

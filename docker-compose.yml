@@ -82,12 +82,14 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
       APIFY_TOKEN: ${APIFY_TOKEN:-}
+      VAULT_ENCRYPTION_KEY: ${VAULT_ENCRYPTION_KEY:-}
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
     volumes:
       - ./backend/src:/app/src:delegated
       - /app/node_modules
       - uploads_data:/app/uploads
+      - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:

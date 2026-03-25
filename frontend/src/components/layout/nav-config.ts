@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard, Brain, MessageSquare,
+  LayoutDashboard, Brain, MessageSquare, Sparkles, Archive,
   Activity, Settings,
 } from 'lucide-react';
 
@@ -23,6 +23,8 @@ export const navGroups: NavGroup[] = [
       { title: 'Dashboard', path: '/app', icon: LayoutDashboard },
       { title: 'Knowledge', path: '/app/knowledge', icon: Brain },
       { title: 'Chat', path: '/app/chat', icon: MessageSquare },
+      { title: 'Content', path: '/app/content', icon: Sparkles },
+      { title: 'Artifacts', path: '/app/artifacts', icon: Archive },
     ],
   },
   {

@@ -15,6 +15,8 @@ import {
   EyeOff,
   Loader2,
   AlertTriangle,
+  Bot,
+  RefreshCw,
 } from 'lucide-react';
 import { useTheme, type Theme } from '@/hooks/use-theme';
 import { useAppSelector, useAppDispatch } from '@/store';
@@ -41,6 +43,7 @@ import {
 } from '@/components/ui/dialog';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { CredentialVault } from '@/components/settings/credential-vault';
 
 // ---- Theme option card ----
 
@@ -104,7 +107,7 @@ function PreviewHalf({ dark }: { dark: boolean }) {
   return (
     <div className={cn('flex h-full flex-1', dark ? 'bg-zinc-900' : 'bg-white')}>
       <div className={cn('w-7 border-r', dark ? 'border-zinc-700 bg-zinc-800' : 'border-zinc-200 bg-zinc-50')}>
-        <div className="mx-1 mt-2 h-1.5 w-5 rounded-sm bg-violet-500" />
+        <div className="mx-1 mt-2 h-1.5 w-5 rounded-sm bg-primary" />
         <div className={cn('mx-1 mt-1.5 h-1 w-4 rounded-sm', dark ? 'bg-zinc-600' : 'bg-zinc-200')} />
         <div className={cn('mx-1 mt-1 h-1 w-3.5 rounded-sm', dark ? 'bg-zinc-700' : 'bg-zinc-200')} />
       </div>
@@ -326,6 +329,283 @@ function BusinessPreferencesCard({
             <p className="text-sm text-muted-foreground">Not set yet.</p>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---- Claude Connection Card ----
+
+type ClaudePhase = 'checking' | 'connected' | 'disconnected' | 'loading_url' | 'waiting_for_code' | 'exchanging' | 'paste_token' | 'error';
+
+function ClaudeConnectionCard() {
+  const [phase, setPhase] = useState<ClaudePhase>('checking');
+  const [code, setCode] = useState('');
+  const [pasteToken, setPasteToken] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [oauthUrl, setOauthUrl] = useState('');
+  const [testOutput, setTestOutput] = useState('');
+  const [testRunning, setTestRunning] = useState(false);
+  const [testError, setTestError] = useState('');
+
+  useEffect(() => {
+    api.get<{ configured: boolean }>('/onboarding/claude-oauth/status')
+      .then((res) => setPhase(res.data.configured ? 'connected' : 'disconnected'))
+      .catch(() => setPhase('disconnected'));
+    return () => { api.post('/onboarding/claude-oauth/cancel').catch(() => {}); };
+  }, []);
+
+  const handleConnect = async () => {
+    setPhase('loading_url');
+    setErrorMsg('');
+    setCode('');
+    setTestOutput('');
+    setTestError('');
+    try {
+      const res = await api.post<{ oauthUrl: string }>('/onboarding/claude-oauth/initiate');
+      setOauthUrl(res.data.oauthUrl);
+      window.open(res.data.oauthUrl, '_blank');
+      setPhase('waiting_for_code');
+    } catch (err) {
+      setPhase('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to start connection');
+    }
+  };
+
+  const handleExchangeCode = async () => {
+    if (!code.trim()) return;
+    setPhase('exchanging');
+    setErrorMsg('');
+    try {
+      const res = await api.post<{ success: boolean; error?: string }>('/onboarding/claude-oauth/exchange-code', {
+        code: code.trim(),
+      });
+      if (res.data.success) {
+        setPhase('connected');
+        setTestOutput('');
+        setTestError('');
+        toast.success('Claude account connected');
+      } else {
+        setPhase('error');
+        setErrorMsg(res.data.error ?? 'Invalid code. Please try again.');
+      }
+    } catch (err) {
+      setPhase('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to exchange code');
+    }
+  };
+
+  const handlePasteToken = async () => {
+    const token = pasteToken.trim();
+    if (!token) return;
+    try {
+      await api.post('/onboarding/claude-oauth/set-token', { token });
+      setPhase('connected');
+      setPasteToken('');
+      setTestOutput('');
+      setTestError('');
+      toast.success('Claude token saved');
+    } catch (err) {
+      const error = err as { response?: { data?: { message?: string } } };
+      toast.error(error.response?.data?.message ?? 'Failed to save token');
+    }
+  };
+
+  const handleTestToken = async () => {
+    setTestRunning(true);
+    setTestOutput('');
+    setTestError('');
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch('/api/onboarding/claude-oauth/test-token', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let gotResult = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6);
+          if (payload === '[DONE]') break;
+          const parsed = JSON.parse(payload) as { type: string; text: string };
+          if (parsed.type === 'delta') { gotResult = true; setTestOutput((prev) => prev + parsed.text); }
+          else if (parsed.type === 'result' && !gotResult) setTestOutput(parsed.text);
+          else if (parsed.type === 'error') setTestError(parsed.text);
+        }
+      }
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : 'Test failed');
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Bot className="h-4 w-4" />
+          Claude Connection
+        </CardTitle>
+        <CardDescription>Manage your Claude account connection for AI features.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {phase === 'checking' && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Checking connection...
+          </div>
+        )}
+
+        {phase === 'connected' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="text-sm font-medium text-green-700 dark:text-green-400">Connected</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleTestToken} disabled={testRunning}>
+                  {testRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
+                  Test
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleConnect}>
+                  <RefreshCw className="h-3 w-3" />
+                  Reconnect
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setPhase('paste_token')}>
+                  Paste Token
+                </Button>
+              </div>
+            </div>
+            {(testOutput || testError) && (
+              <div className={`rounded border p-3 text-xs ${
+                testError
+                  ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                  : 'border-border bg-muted/50 text-foreground'
+              }`}>
+                {testError ? <p>{testError}</p> : <p className="whitespace-pre-wrap">{testOutput}{testRunning ? '▌' : ''}</p>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {phase === 'disconnected' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Not connected</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Connect your Claude account to enable AI-powered features like chat, knowledge processing, and content generation.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={handleConnect} className="gap-2" size="sm">
+                <Bot className="h-3.5 w-3.5" />
+                Connect Claude Account
+              </Button>
+              <Button variant="outline" onClick={() => setPhase('paste_token')} size="sm" className="gap-2 text-xs">
+                Paste Token
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'loading_url' && (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Starting connection...
+          </div>
+        )}
+
+        {phase === 'waiting_for_code' && (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+              <p className="text-xs text-blue-800 dark:text-blue-200">
+                Complete the authorization in Claude&apos;s website, then paste the code below.
+              </p>
+              {oauthUrl && (
+                <a href={oauthUrl} target="_blank" rel="noopener noreferrer"
+                  className="mt-1 inline-block text-xs text-blue-600 underline hover:text-blue-800 dark:text-blue-400">
+                  Click here if the tab didn&apos;t open
+                </a>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleExchangeCode(); }}
+                placeholder="Paste authorization code..."
+                className="text-sm"
+                autoFocus
+              />
+              <Button onClick={handleExchangeCode} disabled={!code.trim()} size="sm">Submit</Button>
+            </div>
+            <button
+              type="button"
+              onClick={() => { api.post('/onboarding/claude-oauth/cancel').catch(() => {}); setPhase('connected'); }}
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {phase === 'exchanging' && (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Exchanging code for tokens...
+          </div>
+        )}
+
+        {phase === 'paste_token' && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Paste your Claude OAuth token directly. You can get one by running <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">claude setup-token</code> in your terminal.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={pasteToken}
+                onChange={(e) => setPasteToken(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handlePasteToken(); }}
+                placeholder="sk-ant-oat01-..."
+                className="text-sm font-mono"
+                type="password"
+                autoFocus
+              />
+              <Button onClick={handlePasteToken} disabled={!pasteToken.trim()} size="sm">Save</Button>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setPasteToken(''); setPhase('connected'); }}
+              className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {phase === 'error' && (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs text-destructive">{errorMsg}</p>
+            </div>
+            <Button onClick={handleConnect} variant="outline" size="sm" className="gap-1.5">
+              <RefreshCw className="h-3 w-3" />
+              Try again
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -597,6 +877,12 @@ export function SettingsPage() {
             onSaved={setOnboardingAnswers}
           />
         )}
+
+        {/* ---- Claude Connection Card ---- */}
+        <ClaudeConnectionCard />
+
+        {/* ---- Credential Vault ---- */}
+        <CredentialVault />
 
         {/* ---- Account Card ---- */}
         <Card>

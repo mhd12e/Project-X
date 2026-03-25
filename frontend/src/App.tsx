@@ -10,6 +10,8 @@ import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { DashboardPage } from '@/pages/dashboard';
 import { KnowledgePage } from '@/pages/knowledge';
 import { ChatPage } from '@/pages/chat';
+import { ContentPage } from '@/pages/content';
+import { ArtifactsPage } from '@/pages/artifacts';
 import { ActivityPage } from '@/pages/activity';
 import { SettingsPage } from '@/pages/settings';
 import { NotFoundPage } from '@/pages/not-found';
@@ -42,7 +44,9 @@ function App(): React.ReactElement {
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="knowledge/:documentId" element={<KnowledgePage />} />
           <Route path="chat" element={<ChatPage />} />
-          <Route path="chat/:conversationId" element={<ChatPage />} />
+          <Route path="content" element={<ContentPage />} />
+          <Route path="content/:conversationId" element={<ContentPage />} />
+          <Route path="artifacts" element={<ArtifactsPage />} />
           <Route path="activity" element={<ActivityPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundAppPage />} />

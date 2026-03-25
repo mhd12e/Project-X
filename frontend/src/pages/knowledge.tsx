@@ -105,7 +105,7 @@ const ACTIVITY_ICON: Record<AgentActivity['type'], React.ElementType> = {
 const ACTIVITY_DOT: Record<AgentActivity['type'], string> = {
   status: 'bg-blue-500',
   tool_call: 'bg-amber-500',
-  thinking: 'bg-purple-500',
+  thinking: 'bg-primary',
   text: 'bg-foreground/40',
   error: 'bg-destructive',
   complete: 'bg-green-500',
@@ -114,7 +114,7 @@ const ACTIVITY_DOT: Record<AgentActivity['type'], string> = {
 const ACTIVITY_COLOR: Record<AgentActivity['type'], string> = {
   status: 'text-blue-600 dark:text-blue-400',
   tool_call: 'text-amber-600 dark:text-amber-400',
-  thinking: 'text-purple-600 dark:text-purple-400',
+  thinking: 'text-primary',
   text: 'text-muted-foreground',
   error: 'text-destructive',
   complete: 'text-green-600 dark:text-green-400',
@@ -608,7 +608,7 @@ export function KnowledgePage() {
     return () => clearInterval(interval);
   }, [documents, dispatch]);
 
-  // Clear persisted activity events when documents finish processing
+  // When documents finish processing: clear activity events & refetch detail for chunks
   const prevDocsRef = useRef(documents);
   useEffect(() => {
     const prev = prevDocsRef.current;
@@ -628,8 +628,12 @@ export function KnowledgePage() {
       .map((d) => d.id);
     if (finishedIds.length > 0) {
       clearActivityForDocuments(finishedIds);
+      // Refetch the full document detail to get chunks
+      if (selectedDocument && finishedIds.includes(selectedDocument.id)) {
+        dispatch(fetchDocument(selectedDocument.id));
+      }
     }
-  }, [documents]);
+  }, [documents, dispatch, selectedDocument]);
 
   if (documentId) {
     return (

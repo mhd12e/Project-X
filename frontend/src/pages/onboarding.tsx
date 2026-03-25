@@ -25,8 +25,6 @@ import {
   MessageSquare,
   AlertCircle,
   CheckCircle2,
-  Eye,
-  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Meta } from '@/components/shared/meta';
@@ -371,32 +369,25 @@ function ThemePreferenceStep({ initialAnswer, onChange }: StepComponentProps) {
 // Step: Claude Sign-in (OAuth)
 // ---------------------------------------------------------------------------
 
-type ClaudeConnectPhase = 'idle' | 'loading_url' | 'waiting_for_code' | 'submitting' | 'success' | 'error';
-
-const SESSION_TIMEOUT_SEC = 5 * 60; // must match backend SESSION_TIMEOUT
+type ClaudeConnectPhase = 'idle' | 'loading_url' | 'waiting_for_code' | 'exchanging' | 'success' | 'paste_token' | 'error';
 
 function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
   const [phase, setPhase] = useState<ClaudeConnectPhase>('idle');
   const [code, setCode] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [pasteToken, setPasteToken] = useState('');
   const [oauthUrl, setOauthUrl] = useState('');
-  const [secondsLeft, setSecondsLeft] = useState(SESSION_TIMEOUT_SEC);
-  const [oauthToken, setOauthToken] = useState('');
-  const [tokenVisible, setTokenVisible] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [testOutput, setTestOutput] = useState('');
   const [testRunning, setTestRunning] = useState(false);
   const [testError, setTestError] = useState('');
-  const cancelledRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-complete if already configured or previously completed
+  // Auto-complete if already configured
   useEffect(() => {
     if (initialAnswer.completed) {
       setPhase('success');
       onChange({ completed: true }, true);
       return;
     }
-    // Check if token is already configured
     api.get<{ configured: boolean }>('/onboarding/claude-oauth/status')
       .then((res) => {
         if (res.data.configured) {
@@ -408,47 +399,10 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup on unmount — reset cancelledRef on mount to handle React strict mode double-mount
+  // Cleanup on unmount
   useEffect(() => {
-    cancelledRef.current = false;
-    return () => {
-      cancelledRef.current = true;
-      if (timerRef.current) clearInterval(timerRef.current);
-      api.post('/onboarding/claude-oauth/cancel').catch(() => {});
-    };
+    return () => { api.post('/onboarding/claude-oauth/cancel').catch(() => {}); };
   }, []);
-
-  const startTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setSecondsLeft(SESSION_TIMEOUT_SEC);
-    timerRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          timerRef.current = null;
-          // Session expired — show error
-          setPhase('error');
-          setErrorMsg('Session expired. Please start the connection flow again.');
-          api.post('/onboarding/claude-oauth/cancel').catch(() => {});
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const stopTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
 
   const handleConnect = async () => {
     setPhase('loading_url');
@@ -456,48 +410,48 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
     setCode('');
     try {
       const res = await api.post<{ oauthUrl: string }>('/onboarding/claude-oauth/initiate');
-      if (cancelledRef.current) return;
       setOauthUrl(res.data.oauthUrl);
       window.open(res.data.oauthUrl, '_blank');
       setPhase('waiting_for_code');
-      startTimer();
     } catch (err) {
-      if (cancelledRef.current) return;
       setPhase('error');
       setErrorMsg(err instanceof Error ? err.message : 'Failed to start connection');
     }
   };
 
-  const handleSubmitCode = async () => {
+  const handleExchangeCode = async () => {
     if (!code.trim()) return;
-    setPhase('submitting');
+    setPhase('exchanging');
     setErrorMsg('');
-    stopTimer();
     try {
-      const res = await api.post<{ success: boolean; error?: string; oauthToken?: string }>('/onboarding/claude-oauth/submit-code', {
+      const res = await api.post<{ success: boolean; error?: string }>('/onboarding/claude-oauth/exchange-code', {
         code: code.trim(),
       });
-      if (cancelledRef.current) return;
       if (res.data.success) {
         setPhase('success');
-        if (res.data.oauthToken) setOauthToken(res.data.oauthToken);
         onChange({ completed: true }, true);
       } else {
         setPhase('error');
-        setErrorMsg(res.data.error ?? 'Invalid code. Please try again.');
+        setErrorMsg(res.data.error ?? 'Failed to exchange code.');
       }
     } catch (err) {
-      if (cancelledRef.current) return;
       setPhase('error');
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to submit code');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to exchange code');
     }
   };
 
-  const handleRetry = () => {
-    stopTimer();
-    setCode('');
-    setErrorMsg('');
-    handleConnect();
+  const handlePasteToken = async () => {
+    const token = pasteToken.trim();
+    if (!token) return;
+    try {
+      await api.post('/onboarding/claude-oauth/set-token', { token });
+      setPhase('success');
+      setPasteToken('');
+      onChange({ completed: true }, true);
+    } catch {
+      setPhase('error');
+      setErrorMsg('Failed to save token.');
+    }
   };
 
   const handleTestToken = async () => {
@@ -505,37 +459,29 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
     setTestOutput('');
     setTestError('');
     try {
-      const token = localStorage.getItem('accessToken');
+      const jwt = localStorage.getItem('accessToken');
       const res = await fetch('/api/onboarding/claude-oauth/test-token', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${jwt}` },
       });
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let gotResult = false;
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
-
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const payload = line.slice(6);
           if (payload === '[DONE]') break;
           const parsed = JSON.parse(payload) as { type: string; text: string };
-          if (parsed.type === 'delta') {
-            gotResult = true;
-            setTestOutput((prev) => prev + parsed.text);
-          } else if (parsed.type === 'result' && !gotResult) {
-            setTestOutput(parsed.text);
-          } else if (parsed.type === 'error') {
-            setTestError(parsed.text);
-          }
+          if (parsed.type === 'delta') { gotResult = true; setTestOutput((prev) => prev + parsed.text); }
+          else if (parsed.type === 'result' && !gotResult) setTestOutput(parsed.text);
+          else if (parsed.type === 'error') setTestError(parsed.text);
         }
       }
     } catch (err) {
@@ -569,6 +515,13 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
             <Bot className="h-4 w-4" />
             Connect Claude Account
           </Button>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+            <div className="relative flex justify-center text-xs uppercase"><span className="bg-background px-2 text-muted-foreground">or</span></div>
+          </div>
+          <Button onClick={() => setPhase('paste_token')} variant="outline" className="w-full gap-2" size="lg">
+            Paste Token Directly
+          </Button>
         </div>
       )}
 
@@ -582,43 +535,29 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
       {phase === 'waiting_for_code' && (
         <div className="space-y-4">
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                Complete the authorization in Claude&apos;s website, then paste the code below.
-              </p>
-              <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-mono tabular-nums ${
-                secondsLeft <= 60
-                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-              }`}>
-                {formatTime(secondsLeft)}
-              </span>
-            </div>
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              A browser tab has opened for Claude authorization. Complete the sign-in, then paste the full code you see (you can include the # part — we&apos;ll handle it).
+            </p>
             {oauthUrl && (
-              <a
-                href={oauthUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-block text-xs text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                Click here if the tab didn&apos;t open automatically
+              <a href={oauthUrl} target="_blank" rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs text-blue-600 underline hover:text-blue-800 dark:text-blue-400">
+                Click here if the tab didn&apos;t open
               </a>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="oauth-code" className="text-sm font-medium">Authorization code</Label>
+            <label className="text-sm font-medium">Authorization code</label>
             <div className="flex gap-2">
               <input
-                id="oauth-code"
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitCode(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleExchangeCode(); }}
                 placeholder="Paste the code here..."
                 className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 autoFocus
               />
-              <Button onClick={handleSubmitCode} disabled={!code.trim()}>
+              <Button onClick={handleExchangeCode} disabled={!code.trim()}>
                 Submit
               </Button>
             </div>
@@ -626,7 +565,6 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
           <button
             type="button"
             onClick={() => {
-              stopTimer();
               api.post('/onboarding/claude-oauth/cancel').catch(() => {});
               setPhase('idle');
               setCode('');
@@ -638,10 +576,37 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
         </div>
       )}
 
-      {phase === 'submitting' && (
+      {phase === 'exchanging' && (
         <div className="flex flex-col items-center gap-3 py-4">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Verifying code...</p>
+          <p className="text-sm text-muted-foreground">Exchanging code for tokens...</p>
+        </div>
+      )}
+
+      {phase === 'paste_token' && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Run <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">claude setup-token</code> in
+            your terminal and paste the token it gives you.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={pasteToken}
+              onChange={(e) => setPasteToken(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handlePasteToken(); }}
+              placeholder="sk-ant-oat01-..."
+              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              autoFocus
+            />
+            <Button onClick={handlePasteToken} disabled={!pasteToken.trim()}>
+              Save
+            </Button>
+          </div>
+          <button type="button" onClick={() => { setPasteToken(''); setPhase('idle'); }}
+            className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+            Back
+          </button>
         </div>
       )}
 
@@ -656,46 +621,17 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
           <p className="text-xs text-muted-foreground">
             Your Claude account is linked. AI features are ready to use.
           </p>
-          {oauthToken && (
-            <div className="mt-2 w-full rounded border border-border bg-muted/50 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-medium text-muted-foreground">OAuth Token</span>
-                <button
-                  type="button"
-                  onClick={() => setTokenVisible((v) => !v)}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {tokenVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-              <p className="mt-1 text-[10px] font-mono text-muted-foreground break-all select-all">
-                {tokenVisible ? oauthToken : `${oauthToken.slice(0, 18)}${'•'.repeat(40)}`}
-              </p>
-            </div>
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2 gap-2"
-            onClick={handleTestToken}
-            disabled={testRunning}
-          >
+          <Button variant="outline" size="sm" className="mt-2 gap-2" onClick={handleTestToken} disabled={testRunning}>
             {testRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
             {testRunning ? 'Testing...' : 'Test Token'}
           </Button>
-
           {(testOutput || testError) && (
             <div className={`mt-2 w-full rounded border p-3 text-xs ${
               testError
                 ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300'
                 : 'border-border bg-muted/50 text-foreground'
             }`}>
-              {testError ? (
-                <p>{testError}</p>
-              ) : (
-                <p className="whitespace-pre-wrap">{testOutput}{testRunning ? '▌' : ''}</p>
-              )}
+              {testError ? <p>{testError}</p> : <p className="whitespace-pre-wrap">{testOutput}{testRunning ? '▌' : ''}</p>}
             </div>
           )}
         </div>
@@ -711,7 +647,7 @@ function ClaudeConnectStep({ initialAnswer, onChange }: StepComponentProps) {
               </p>
             </div>
           </div>
-          <Button onClick={handleRetry} variant="outline" className="w-full gap-2">
+          <Button onClick={() => { setPhase('idle'); setErrorMsg(''); setCode(''); }} variant="outline" className="w-full gap-2">
             Try Again
           </Button>
         </div>
@@ -763,7 +699,7 @@ const ACTIVITY_ICON: Record<AgentActivity['type'], React.ElementType> = {
 const ACTIVITY_DOT: Record<AgentActivity['type'], string> = {
   status: 'bg-blue-500',
   tool_call: 'bg-amber-500',
-  thinking: 'bg-purple-500',
+  thinking: 'bg-primary',
   text: 'bg-foreground/40',
   error: 'bg-destructive',
   complete: 'bg-green-500',

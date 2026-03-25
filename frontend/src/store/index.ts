@@ -3,15 +3,21 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { TypedUseSelectorHook } from 'react-redux';
 import authReducer from './auth.slice';
 import knowledgeReducer from './knowledge.slice';
-import chatReducer from './chat.slice';
+import conversationReducer from './conversation.slice';
+import contentReducer from './content.slice';
 import activityReducer from './activity.slice';
+import artifactReducer from './artifact.slice';
+import vaultReducer from './vault.slice';
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     knowledge: knowledgeReducer,
-    chat: chatReducer,
+    conversation: conversationReducer,
+    content: contentReducer,
     activity: activityReducer,
+    artifact: artifactReducer,
+    vault: vaultReducer,
   },
   devTools: import.meta.env.DEV,
 });

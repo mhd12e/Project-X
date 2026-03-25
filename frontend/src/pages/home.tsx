@@ -218,7 +218,7 @@ export function HomePage(): React.ReactElement {
             </div>
           </div>
         </div>
-        <div className="animate-fade-up opacity-0 delay-500 border-t">
+        <div className="relative border-t">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
             {[
               { icon: Megaphone, label: 'Marketing' },

@@ -61,11 +61,12 @@ import {
 import { useActivityStream } from '@/hooks/use-activity-stream';
 
 const CATEGORY_COLORS: Record<string, string> = {
-  auth: '#6366f1',
-  knowledge: '#8b5cf6',
-  chat: '#3b82f6',
-  retrieval: '#06b6d4',
-  agent: '#f59e0b',
+  auth: '#3C3D37',
+  knowledge: '#697565',
+  chat: '#8B9A82',
+  retrieval: '#ECDFCC',
+  agent: '#181C14',
+  content: '#5A6B55',
   system: '#64748b',
 };
 

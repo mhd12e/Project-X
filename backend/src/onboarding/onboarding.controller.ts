@@ -95,43 +95,50 @@ export class OnboardingController {
     return result;
   }
 
-  // ─── Claude OAuth flow ───
+  // ─── Claude OAuth PKCE flow ───
 
   @Get('claude-oauth/status')
-  @ApiOperation({ summary: 'Check if Claude OAuth token is already configured' })
+  @ApiOperation({ summary: 'Check if Claude OAuth token is configured' })
   getClaudeOAuthStatus() {
     return { configured: this.claudeOAuth.isConfigured() };
   }
 
   @Post('claude-oauth/initiate')
-  @ApiOperation({ summary: 'Start Claude OAuth flow — spawns setup-token and returns URL' })
-  async initiateClaudeOAuth(@CurrentUser() user: User) {
-    this.logger.log(`Starting Claude OAuth flow for user ${user.id}`);
+  @ApiOperation({ summary: 'Start PKCE OAuth flow — generates authorize URL' })
+  initiateClaudeOAuth(@CurrentUser() user: User) {
+    this.logger.log(`Starting PKCE OAuth flow for user ${user.id}`);
     return this.claudeOAuth.initiateOAuth(user.id);
   }
 
-  @Post('claude-oauth/submit-code')
-  @ApiOperation({ summary: 'Submit the OAuth authorization code' })
-  async submitClaudeOAuthCode(
+  @Post('claude-oauth/exchange-code')
+  @ApiOperation({ summary: 'Exchange authorization code for tokens via PKCE' })
+  async exchangeClaudeCode(
     @CurrentUser() user: User,
     @Body() dto: SubmitClaudeCodeDto,
   ) {
-    const result = await this.claudeOAuth.submitCode(user.id, dto.code);
+    const result = await this.claudeOAuth.exchangeCode(user.id, dto.code);
     if (result.success) {
-      // Auto-save the step as completed
       await this.onboardingService.saveStepAnswer(user.id, 'claude_signin', {
         completed: true,
       });
     }
-    const oauthToken = result.success ? (process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? '') : '';
-    return { ...result, oauthToken };
+    return result;
   }
 
   @Post('claude-oauth/cancel')
-  @ApiOperation({ summary: 'Cancel an ongoing Claude OAuth session' })
+  @ApiOperation({ summary: 'Cancel an in-progress OAuth session' })
   cancelClaudeOAuth(@CurrentUser() user: User) {
     this.claudeOAuth.cancel(user.id);
     return { ok: true };
+  }
+
+  @Post('claude-oauth/set-token')
+  @ApiOperation({ summary: 'Set Claude token directly (paste from setup-token)' })
+  setClaudeToken(@Body() body: { token: string }) {
+    const token = (body.token ?? '').trim();
+    if (!token) return { success: false, error: 'Token is required' };
+    this.claudeOAuth.setTokenDirectly(token);
+    return { success: true };
   }
 
   @Get('claude-oauth/test-token')
@@ -142,7 +149,9 @@ export class OnboardingController {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    if (!this.claudeOAuth.isConfigured()) {
+    // Ensure token is fresh (auto-refreshes if expired)
+    const token = await this.claudeOAuth.ensureFreshToken();
+    if (!token) {
       res.write(`data: ${JSON.stringify({ type: 'error', text: 'No Claude token configured.' })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
