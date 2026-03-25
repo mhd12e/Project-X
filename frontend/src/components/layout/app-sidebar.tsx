@@ -31,13 +31,15 @@ export function AppSidebar() {
   const user = useAppSelector((s) => s.auth.user);
 
   const activeConvType = useAppSelector((s) => s.conversation.activeConversation?.type);
+  const navType = (location.state as { type?: string } | null)?.type;
+  const resolvedConvType = activeConvType ?? navType;
 
   const isActive = (path: string) => {
     if (path === '/app') return location.pathname === '/app';
     // When viewing a conversation at /app/content/:id, highlight based on conversation type
     if (location.pathname.match(/^\/app\/content\/[^/]+$/)) {
-      if (path === '/app/chat') return activeConvType === 'chat';
-      if (path === '/app/content') return activeConvType !== 'chat';
+      if (path === '/app/chat') return resolvedConvType === 'chat';
+      if (path === '/app/content') return resolvedConvType !== 'chat';
     }
     return location.pathname.startsWith(path);
   };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Bot, Brain, Search, Globe,
@@ -136,6 +136,7 @@ function ContentWelcome() {
 export function ContentPage(): React.ReactElement {
   const { conversationId: urlConvId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useAppDispatch();
   const { conversations, activeConversation, loading, sending } = useAppSelector((s) => s.conversation);
   const { providers, generatingImage } = useAppSelector((s) => s.content);
@@ -147,10 +148,9 @@ export function ContentPage(): React.ReactElement {
   const lastDoneRef = useRef<string | null>(null);
   const lastTitleRef = useRef<string | null>(null);
 
-  // Detect conversation type — defaults to 'content' when no conversation is loaded
-  // When a urlConvId exists but conversation hasn't loaded yet, we're in a loading state
-  const isLoadingConv = !!urlConvId && !activeConversation;
-  const convType = activeConversation?.type ?? 'content';
+  // Detect conversation type from: active conversation > navigation state > default 'content'
+  const navType = (location.state as { type?: string } | null)?.type as 'chat' | 'content' | undefined;
+  const convType = activeConversation?.type ?? navType ?? 'content';
   const isChat = convType === 'chat';
 
   const sidebarConversations = conversations.filter((c) => c.type === convType);
@@ -250,10 +250,10 @@ export function ContentPage(): React.ReactElement {
     if (!convId || convId === '__draft__') {
       if (isChat) {
         const result = await dispatch(createConversationAndSend({ type: 'chat', message: msg })).unwrap();
-        navigate(`/app/content/${result.conversation.id}`, { replace: true });
+        navigate(`/app/content/${result.conversation.id}`, { replace: true, state: { type: 'chat' } });
       } else {
         const result = await dispatch(createConversation({ type: 'content', message: msg })).unwrap();
-        navigate(`/app/content/${result.id}`, { replace: true });
+        navigate(`/app/content/${result.id}`, { replace: true, state: { type: 'content' } });
       }
     } else {
       dispatch(sendMessage({ conversationId: convId, message: msg }));
@@ -263,8 +263,8 @@ export function ContentPage(): React.ReactElement {
   const handleSelect = useCallback((id: string) => {
     clearStream(); lastDoneRef.current = null; lastTitleRef.current = null;
     dispatch(clearActiveConversation());
-    navigate(`/app/content/${id}`);
-  }, [dispatch, navigate, clearStream]);
+    navigate(`/app/content/${id}`, { state: { type: convType } });
+  }, [dispatch, navigate, clearStream, convType]);
 
   const handleNew = useCallback(() => {
     clearStream(); lastDoneRef.current = null; lastTitleRef.current = null;
@@ -307,15 +307,6 @@ export function ContentPage(): React.ReactElement {
   const apiIdeas = convId ? allApiIdeas.filter((i) => i.conversationId === convId) : [];
   const seenIds = new Set(apiIdeas.map((i) => i.id));
   const allIdeas = [...apiIdeas, ...streamedIdeas.filter((i) => !seenIds.has(i.id))];
-
-  // ---- Loading state while conversation type is unknown ----
-  if (isLoadingConv) {
-    return (
-      <div className="flex -m-6 items-center justify-center" style={{ height: 'calc(100% + 3rem)' }}>
-        <Skeleton className="h-8 w-48 rounded-lg" />
-      </div>
-    );
-  }
 
   // ---- Chat-type conversation view ----
   if (isChat) {

@@ -63,12 +63,12 @@ export function ChatPage(): React.ReactElement {
     setMessage('');
 
     const result = await dispatch(createConversationAndSend({ type: 'chat', message: msg })).unwrap();
-    navigate(`/app/content/${result.conversation.id}`, { replace: true });
+    navigate(`/app/content/${result.conversation.id}`, { replace: true, state: { type: 'chat' } });
   }, [message, dispatch, navigate]);
 
   const handleSelect = useCallback((id: string) => {
     dispatch(clearActiveConversation());
-    navigate(`/app/content/${id}`);
+    navigate(`/app/content/${id}`, { state: { type: 'chat' } });
   }, [dispatch, navigate]);
 
   const handleNew = useCallback(() => {

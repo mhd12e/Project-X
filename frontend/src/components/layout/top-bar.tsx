@@ -88,7 +88,9 @@ function getBreadcrumbs(pathname: string, dynamicLabel: string | null, convType?
 
 export function TopBar({ className }: { className?: string }) {
   const location = useLocation();
-  const convType = useAppSelector((s) => s.conversation.activeConversation?.type);
+  const activeConvType = useAppSelector((s) => s.conversation.activeConversation?.type);
+  const navType = (location.state as { type?: string } | null)?.type;
+  const convType = activeConvType ?? navType;
   const dynamicLabel = useDynamicLabel(location.pathname);
   const breadcrumbs = getBreadcrumbs(location.pathname, dynamicLabel, convType);
 
