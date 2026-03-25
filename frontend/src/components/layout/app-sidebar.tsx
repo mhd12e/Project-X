@@ -30,8 +30,15 @@ export function AppSidebar() {
   const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
 
+  const activeConvType = useAppSelector((s) => s.conversation.activeConversation?.type);
+
   const isActive = (path: string) => {
     if (path === '/app') return location.pathname === '/app';
+    // When viewing a conversation at /app/content/:id, highlight based on conversation type
+    if (location.pathname.match(/^\/app\/content\/[^/]+$/)) {
+      if (path === '/app/chat') return activeConvType === 'chat';
+      if (path === '/app/content') return activeConvType !== 'chat';
+    }
     return location.pathname.startsWith(path);
   };
 

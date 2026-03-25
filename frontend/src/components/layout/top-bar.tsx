@@ -47,7 +47,7 @@ function useDynamicLabel(pathname: string): string | null {
   return null;
 }
 
-function getBreadcrumbs(pathname: string, dynamicLabel: string | null): Crumb[] {
+function getBreadcrumbs(pathname: string, dynamicLabel: string | null, convType?: string): Crumb[] {
   const crumbs: Crumb[] = [{ label: 'Project X', path: '/app', isLast: false }];
 
   // Exact match
@@ -59,10 +59,18 @@ function getBreadcrumbs(pathname: string, dynamicLabel: string | null): Crumb[] 
   // Try parent match for nested routes like /app/knowledge/123
   const segments = pathname.split('/').filter(Boolean);
   if (segments.length >= 2) {
-    const parentPath = '/' + segments.slice(0, 2).join('/');
-    if (pathLabels[parentPath]) {
+    let parentPath = '/' + segments.slice(0, 2).join('/');
+    let parentLabel = pathLabels[parentPath];
+
+    // For /app/content/:id with a chat conversation, show "Chat" as parent
+    if (parentPath === '/app/content' && convType === 'chat') {
+      parentPath = '/app/chat';
+      parentLabel = pathLabels['/app/chat'] ?? 'Chat';
+    }
+
+    if (parentLabel) {
       crumbs.push({
-        label: pathLabels[parentPath],
+        label: parentLabel,
         path: parentPath,
         isLast: segments.length === 2,
       });
@@ -80,8 +88,9 @@ function getBreadcrumbs(pathname: string, dynamicLabel: string | null): Crumb[] 
 
 export function TopBar({ className }: { className?: string }) {
   const location = useLocation();
+  const convType = useAppSelector((s) => s.conversation.activeConversation?.type);
   const dynamicLabel = useDynamicLabel(location.pathname);
-  const breadcrumbs = getBreadcrumbs(location.pathname, dynamicLabel);
+  const breadcrumbs = getBreadcrumbs(location.pathname, dynamicLabel, convType);
 
   return (
     <header className={`flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4 ${className ?? ''}`}>
