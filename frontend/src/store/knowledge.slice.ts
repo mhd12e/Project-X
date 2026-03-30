@@ -70,7 +70,6 @@ export const uploadDocument = createAsyncThunk(
     const { data } = await api.post<KnowledgeDocument>(
       '/knowledge/upload',
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
     );
     return data;
   },

@@ -30,7 +30,14 @@ You MUST use the save_idea tool to save each idea you generate. For every idea:
 - Mix formats and channels for variety
 - Use search_knowledge to understand the business before generating ideas
 - Think about trends, seasonality, and audience engagement
-- After saving all ideas, write a brief summary of the themes covered`;
+- After saving all ideas, write a brief summary of the themes covered
+
+# Managing Ideas
+You can also update or delete existing ideas when the user asks:
+- Use update_idea to change the title, description, or category of an existing idea
+- Use delete_idea to remove ideas the user doesn't want
+- When asked to "remove the last N ideas", find those ideas and delete them one by one
+- Always confirm deletions/updates in your response`;
 
 @Injectable()
 export class ContentAgentService extends BaseAgentService {
@@ -141,6 +148,66 @@ export class ContentAgentService extends BaseAgentService {
       },
     );
 
-    return createSdkMcpServer({ name: 'content-tools', tools: [saveIdea, searchKnowledge] });
+    const deleteIdea = tool(
+      'delete_idea',
+      'Delete/remove a content idea by its ID. Use when the user asks to remove ideas.',
+      {
+        idea_id: z.string().describe('The UUID of the idea to delete.'),
+      },
+      async (args) => {
+        const deleted = await ideaService.delete(args.idea_id);
+        if (!deleted) {
+          emitToolResult('delete_idea', 'Idea not found.');
+          return { content: [{ type: 'text' as const, text: `Idea ${args.idea_id} not found.` }] };
+        }
+        emitToolResult('delete_idea', 'Idea deleted.');
+        return { content: [{ type: 'text' as const, text: `Idea ${args.idea_id} deleted successfully.` }] };
+      },
+    );
+
+    const updateIdea = tool(
+      'update_idea',
+      'Update an existing content idea (title, description, or category).',
+      {
+        idea_id: z.string().describe('The UUID of the idea to update.'),
+        title: z.string().optional().describe('New title.'),
+        description: z.string().optional().describe('New description.'),
+        category: z.enum([
+          'social_media', 'blog_post', 'video', 'email',
+          'infographic', 'case_study', 'whitepaper', 'ad_copy', 'newsletter',
+        ]).optional().describe('New category.'),
+      },
+      async (args) => {
+        const updated = await ideaService.update(args.idea_id, {
+          title: args.title,
+          description: args.description,
+          category: args.category,
+        });
+        if (!updated) {
+          emitToolResult('update_idea', 'Idea not found.');
+          return { content: [{ type: 'text' as const, text: `Idea ${args.idea_id} not found.` }] };
+        }
+        emitToolResult('update_idea', `Idea updated: "${updated.title}"`);
+        return { content: [{ type: 'text' as const, text: `Idea "${updated.title}" updated successfully.` }] };
+      },
+    );
+
+    const listIdeas = tool(
+      'list_ideas',
+      'List all ideas saved in the current conversation. Use this to find idea IDs before updating or deleting.',
+      {},
+      async () => {
+        const ideas = await ideaService.findByConversation(conversationId);
+        if (ideas.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No ideas saved in this conversation.' }] };
+        }
+        const list = ideas.map((idea, i) =>
+          `${i + 1}. [${idea.id}] "${idea.title}" (${idea.category ?? 'uncategorized'})`,
+        ).join('\n');
+        return { content: [{ type: 'text' as const, text: `${ideas.length} ideas:\n${list}` }] };
+      },
+    );
+
+    return createSdkMcpServer({ name: 'content-tools', tools: [saveIdea, searchKnowledge, deleteIdea, updateIdea, listIdeas] });
   }
 }

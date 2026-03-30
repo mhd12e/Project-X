@@ -55,6 +55,14 @@ export const generateImage = createAsyncThunk(
   },
 );
 
+export const deleteIdea = createAsyncThunk(
+  'content/deleteIdea',
+  async (id: string) => {
+    await api.delete(`/content/ideas/${id}`);
+    return id;
+  },
+);
+
 export const fetchProviders = createAsyncThunk(
   'content/fetchProviders',
   async () => {
@@ -83,6 +91,9 @@ const contentSlice = createSlice({
       .addCase(generateImage.rejected, (state, action) => {
         state.generatingImage = false;
         state.error = action.error.message ?? 'Failed to generate image';
+      })
+      .addCase(deleteIdea.fulfilled, (state, action) => {
+        state.ideas = state.ideas.filter((i) => i.id !== action.payload);
       })
       .addCase(fetchProviders.fulfilled, (state, action) => {
         state.providers = action.payload;

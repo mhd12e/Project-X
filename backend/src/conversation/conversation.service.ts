@@ -1,18 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Conversation, ConversationType } from './conversation.entity';
+import { Conversation, ConversationType, ConversationStatus } from './conversation.entity';
 import { Message, MessageRole } from './message.entity';
 import { ContentBlock, extractPlainText } from './content-block.types';
 
 @Injectable()
-export class ConversationService {
+export class ConversationService implements OnModuleInit {
+  private readonly logger = new Logger(ConversationService.name);
+
   constructor(
     @InjectRepository(Conversation)
     private readonly convRepo: Repository<Conversation>,
     @InjectRepository(Message)
     private readonly msgRepo: Repository<Message>,
   ) {}
+
+  /** Reset conversations stuck in 'generating' state from a previous crash/restart. */
+  async onModuleInit(): Promise<void> {
+    const result = await this.convRepo.update(
+      { status: ConversationStatus.GENERATING },
+      { status: ConversationStatus.ACTIVE },
+    );
+    if (result.affected && result.affected > 0) {
+      this.logger.warn(`Reset ${result.affected} stuck conversation(s) from 'generating' to 'active'`);
+    }
+  }
 
   // ---- Conversations ----
 

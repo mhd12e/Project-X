@@ -12,10 +12,6 @@ import {
   Clock,
   CheckCircle2,
   Cog,
-  Shield,
-  Search,
-  Bot,
-  Server,
   RefreshCw,
 } from 'lucide-react';
 import {
@@ -33,45 +29,12 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppSelector } from '@/store';
 import { Meta } from '@/components/shared/meta';
+import { formatRelativeDate } from '@/lib/utils';
+import { CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_LABELS } from '@/lib/activity-config';
 import api from '@/lib/api';
-
-// ---- Types ----
-
-interface ActivityStats {
-  totalToday: number;
-  totalThisWeek: number;
-  errorCount: number;
-  byCategory: Record<string, number>;
-}
-
-interface TimelinePoint {
-  timestamp: string;
-  count: number;
-}
-
-interface ActivityLogEntry {
-  id: string;
-  category: string;
-  level: string;
-  action: string;
-  description: string;
-  createdAt: string;
-}
-
-interface KnowledgeDoc {
-  id: string;
-  title: string | null;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  fileSize: number;
-  createdAt: string;
-}
-
-interface ChatConversation {
-  id: string;
-  title: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { ActivityStats, TimelinePoint, ActivityLogEntry } from '@/store/activity.slice';
+import type { KnowledgeDocument } from '@/store/knowledge.slice';
+import type { Conversation } from '@/store/conversation.slice';
 
 // ---- Helpers ----
 
@@ -82,19 +45,7 @@ function greetingText(): string {
   return 'Good evening';
 }
 
-function formatRelative(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+const formatRelative = formatRelativeDate;
 
 function formatTimelineLabel(timestamp: string): string {
   if (timestamp.includes(' ')) {
@@ -104,34 +55,6 @@ function formatTimelineLabel(timestamp: string): string {
   const d = new Date(timestamp);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
-
-const CATEGORY_COLORS: Record<string, string> = {
-  auth: '#3C3D37',
-  knowledge: '#697565',
-  chat: '#8B9A82',
-  retrieval: '#ECDFCC',
-  agent: '#181C14',
-  content: '#5A6B55',
-  system: '#64748b',
-};
-
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  auth: Shield,
-  knowledge: Brain,
-  chat: MessageSquare,
-  retrieval: Search,
-  agent: Bot,
-  system: Server,
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  auth: 'Auth',
-  knowledge: 'Knowledge',
-  chat: 'Chat',
-  retrieval: 'Retrieval',
-  agent: 'Agent',
-  system: 'System',
-};
 
 const STATUS_ICONS: Record<string, React.ElementType> = {
   pending: Clock,
@@ -153,8 +76,8 @@ interface DashboardData {
   stats: ActivityStats | null;
   timeline: TimelinePoint[];
   recentActivity: ActivityLogEntry[];
-  documents: KnowledgeDoc[];
-  conversations: ChatConversation[];
+  documents: KnowledgeDocument[];
+  conversations: Conversation[];
 }
 
 function useDashboardData() {
@@ -174,8 +97,8 @@ function useDashboardData() {
         api.get<ActivityStats>('/activity/stats'),
         api.get<TimelinePoint[]>('/activity/timeline?range=week'),
         api.get<{ data: ActivityLogEntry[]; total: number }>('/activity?limit=5'),
-        api.get<KnowledgeDoc[]>('/knowledge/documents'),
-        api.get<ChatConversation[]>('/chat/conversations'),
+        api.get<KnowledgeDocument[]>('/knowledge/documents'),
+        api.get<Conversation[]>('/conversations?type=chat'),
       ]);
       setData({
         stats: statsRes.data,
@@ -428,7 +351,7 @@ function RecentConversations({
   conversations,
   loading,
 }: {
-  conversations: ChatConversation[];
+  conversations: Conversation[];
   loading: boolean;
 }) {
   const recent = conversations.slice(0, 5);
@@ -469,7 +392,8 @@ function RecentConversations({
             {recent.map((conv) => (
               <Link
                 key={conv.id}
-                to={`/app/chat/${conv.id}`}
+                to={`/app/content/${conv.id}`}
+                state={{ type: 'chat' }}
                 className="flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/50"
               >
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10">
@@ -497,7 +421,7 @@ function KnowledgeOverview({
   documents,
   loading,
 }: {
-  documents: KnowledgeDoc[];
+  documents: KnowledgeDocument[];
   loading: boolean;
 }) {
   const completed = documents.filter((d) => d.status === 'completed').length;

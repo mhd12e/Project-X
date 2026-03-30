@@ -89,7 +89,7 @@ export abstract class BaseAgentService {
       const blocks: ContentBlock[] = [];
 
       const BUILTIN_TOOLS = new Set(['WebSearch', 'WebFetch', 'Read', 'web_search', 'web_fetch']);
-      const pendingBuiltinTools: Array<{ toolName: string; input?: Record<string, unknown> }> = [];
+      const pendingTools: Array<{ toolName: string; input?: Record<string, unknown> }> = [];
 
       const agentConfig = await this.getAgentConfig(conversationId, blocks);
 
@@ -113,20 +113,22 @@ export abstract class BaseAgentService {
           if (!event) continue;
           const eventType = event.type as string;
 
-          // Flush pending built-in tool results when a new API response starts
-          if (eventType === 'message_start' && pendingBuiltinTools.length > 0) {
-            for (const pending of pendingBuiltinTools) {
-              const resultMsg = BaseAgentService.describeBuiltinResult(pending.toolName, pending.input);
-              this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
-              for (let i = blocks.length - 1; i >= 0; i--) {
-                const b = blocks[i];
-                if (b.type === 'tool_call' && b.toolName === pending.toolName && !b.toolResult) {
-                  (b as { toolResult?: string }).toolResult = resultMsg;
-                  break;
-                }
+          // Flush pending tool results when a new API response starts
+          if (eventType === 'message_start' && pendingTools.length > 0) {
+            for (const pending of pendingTools) {
+              const resultMsg = BUILTIN_TOOLS.has(pending.toolName)
+                ? BaseAgentService.describeBuiltinResult(pending.toolName, pending.input)
+                : 'Completed';
+              // Only emit if the block hasn't already been filled by an MCP tool's own emitToolResult
+              const block = [...blocks].reverse().find(
+                (b) => b.type === 'tool_call' && b.toolName === pending.toolName && !b.toolResult,
+              );
+              if (block) {
+                this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
+                (block as { toolResult?: string }).toolResult = resultMsg;
               }
             }
-            pendingBuiltinTools.length = 0;
+            pendingTools.length = 0;
           }
 
           if (eventType === 'content_block_start') {
@@ -179,9 +181,7 @@ export abstract class BaseAgentService {
               blocks.push({ type: 'tool_call', toolName: currentToolName, toolInput: inputStr, description });
               gen.activities.push({ type: 'tool_call', toolName: currentToolName, toolInput: inputStr, description });
 
-              if (BUILTIN_TOOLS.has(currentToolName)) {
-                pendingBuiltinTools.push({ toolName: currentToolName, input: parsedInput });
-              }
+              pendingTools.push({ toolName: currentToolName, input: parsedInput });
 
               currentToolName = '';
               currentToolInputBuffer = '';
@@ -209,16 +209,17 @@ export abstract class BaseAgentService {
         }
       }
 
-      // Flush remaining built-in tools
-      for (const pending of pendingBuiltinTools) {
-        const resultMsg = BaseAgentService.describeBuiltinResult(pending.toolName, pending.input);
-        this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const b = blocks[i];
-          if (b.type === 'tool_call' && b.toolName === pending.toolName && !b.toolResult) {
-            (b as { toolResult?: string }).toolResult = resultMsg;
-            break;
-          }
+      // Flush remaining pending tools
+      for (const pending of pendingTools) {
+        const resultMsg = BUILTIN_TOOLS.has(pending.toolName)
+          ? BaseAgentService.describeBuiltinResult(pending.toolName, pending.input)
+          : 'Completed';
+        const block = [...blocks].reverse().find(
+          (b) => b.type === 'tool_call' && b.toolName === pending.toolName && !b.toolResult,
+        );
+        if (block) {
+          this.emit(conversationId, 'tool_result', { toolName: pending.toolName, toolResult: resultMsg });
+          (block as { toolResult?: string }).toolResult = resultMsg;
         }
       }
 

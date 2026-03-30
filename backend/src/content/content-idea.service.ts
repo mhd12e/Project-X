@@ -44,4 +44,21 @@ export class ContentIdeaService {
       order: { createdAt: 'DESC' },
     });
   }
+
+  async update(
+    id: string,
+    updates: { title?: string; description?: string; category?: string },
+  ): Promise<ContentIdea | null> {
+    const idea = await this.ideaRepo.findOne({ where: { id } });
+    if (!idea) return null;
+    if (updates.title !== undefined) idea.title = updates.title;
+    if (updates.description !== undefined) idea.description = updates.description;
+    if (updates.category !== undefined) idea.category = updates.category;
+    return this.ideaRepo.save(idea);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.ideaRepo.delete(id);
+    return (result.affected ?? 0) > 0;
+  }
 }

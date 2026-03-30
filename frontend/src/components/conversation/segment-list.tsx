@@ -28,25 +28,61 @@ function InlineThinking({ content }: { content: string }) {
   );
 }
 
-function InlineToolCall({ toolName, description, toolResult }: {
+function InlineToolCall({ toolName, description, toolInput, toolResult }: {
   toolName: string;
   description?: string;
+  toolInput?: string;
   toolResult?: string;
 }) {
+  const [open, setOpen] = useState(false);
   const isDone = !!toolResult;
+  const hasDetails = toolInput || toolResult;
+
   return (
-    <div className="my-1.5 flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-1.5 text-xs">
-      {isDone ? (
-        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-      ) : (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-      )}
-      <span className="text-muted-foreground">{description ?? toolName}</span>
-      {isDone && toolResult && (
-        <span className="ml-auto text-[10px] text-muted-foreground/60 truncate max-w-[200px]">{toolResult}</span>
+    <div className="my-1.5">
+      <button
+        onClick={() => hasDetails && setOpen(!open)}
+        className={`flex w-full items-center gap-2 rounded-lg border bg-muted/30 px-3 py-1.5 text-xs text-left transition-colors ${hasDetails ? 'cursor-pointer hover:bg-muted/50' : 'cursor-default'}`}
+      >
+        {isDone ? (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+        ) : (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        )}
+        <span className="text-muted-foreground flex-1 truncate">{description ?? toolName}</span>
+        {isDone && toolResult && !open && (
+          <span className="text-[10px] text-muted-foreground/60 truncate max-w-[200px] shrink-0">{toolResult}</span>
+        )}
+        {hasDetails && (
+          open ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/50" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+        )}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-lg border bg-muted/20 text-[11px] overflow-hidden">
+          {toolInput && (
+            <div className="border-b px-3 py-2">
+              <span className="font-medium text-muted-foreground/70 uppercase tracking-wider text-[9px]">Input</span>
+              <pre className="mt-1 text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto">{formatToolInput(toolInput)}</pre>
+            </div>
+          )}
+          {toolResult && (
+            <div className="px-3 py-2">
+              <span className="font-medium text-muted-foreground/70 uppercase tracking-wider text-[9px]">Output</span>
+              <pre className="mt-1 text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-y-auto">{toolResult}</pre>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+function formatToolInput(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 function InlineSource({ source }: {
@@ -77,7 +113,7 @@ export function StreamingSegmentList({ segments }: { segments: StreamSegment[] }
       {segments.map((seg, i) => {
         if (seg.type === 'text') return <Markdown key={i}>{seg.content}</Markdown>;
         if (seg.type === 'thinking') return <InlineThinking key={i} content={seg.content} />;
-        if (seg.type === 'tool_call') return <InlineToolCall key={i} toolName={seg.toolName} description={seg.description} toolResult={seg.toolResult} />;
+        if (seg.type === 'tool_call') return <InlineToolCall key={i} toolName={seg.toolName} description={seg.description} toolInput={seg.toolInput} toolResult={seg.toolResult} />;
         if (seg.type === 'source') return <InlineSource key={i} source={seg.source} />;
         return null;
       })}
@@ -92,7 +128,7 @@ export function ContentBlockList({ blocks }: { blocks: ContentBlock[] }) {
       {blocks.map((block, i) => {
         if (block.type === 'text') return <Markdown key={i}>{block.text}</Markdown>;
         if (block.type === 'thinking') return <InlineThinking key={i} content={block.text} />;
-        if (block.type === 'tool_call') return <InlineToolCall key={i} toolName={block.toolName} description={block.description} toolResult={block.toolResult} />;
+        if (block.type === 'tool_call') return <InlineToolCall key={i} toolName={block.toolName} description={block.description} toolInput={block.toolInput} toolResult={block.toolResult} />;
         if (block.type === 'source') return <InlineSource key={i} source={block} />;
         if (block.type === 'idea_generated') return null;
         if (block.type === 'error') return <InlineError key={i} text={block.text} />;

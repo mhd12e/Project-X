@@ -65,8 +65,12 @@ export const fetchMe = createAsyncThunk(
       const { data } = await api.get('/auth/me');
       return data;
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } };
-      return rejectWithValue(error.response?.data?.message ?? 'Session expired');
+      const error = err as { response?: { status?: number; data?: { message?: string } } };
+      // Only treat 401 as an auth failure — network errors should not log the user out
+      return rejectWithValue({
+        message: error.response?.data?.message ?? 'Session expired',
+        status: error.response?.status,
+      });
     }
   },
 );
@@ -134,11 +138,15 @@ const authSlice = createSlice({
       .addCase(fetchMe.fulfilled, (state, action) => {
         state.user = action.payload;
       })
-      .addCase(fetchMe.rejected, (state) => {
-        state.user = null;
-        state.accessToken = null;
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+      .addCase(fetchMe.rejected, (state, action) => {
+        const payload = action.payload as { status?: number } | undefined;
+        // Only clear auth on 401 (invalid token) — not on network errors or server restarts
+        if (payload?.status === 401 || payload?.status === 403) {
+          state.user = null;
+          state.accessToken = null;
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        }
       });
   },
 });

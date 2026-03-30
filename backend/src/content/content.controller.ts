@@ -2,6 +2,8 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -72,6 +74,25 @@ export class ContentController {
         createdAt: a.createdAt,
       })),
     };
+  }
+
+  @Patch('ideas/:id')
+  @ApiOperation({ summary: 'Update an idea' })
+  async updateIdea(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { title?: string; description?: string; category?: string },
+  ) {
+    const idea = await this.ideaService.update(id, body);
+    if (!idea) throw new NotFoundException('Idea not found');
+    return { id: idea.id, title: idea.title, description: idea.description, category: idea.category };
+  }
+
+  @Delete('ideas/:id')
+  @ApiOperation({ summary: 'Delete an idea' })
+  async deleteIdea(@Param('id', ParseUUIDPipe) id: string) {
+    const deleted = await this.ideaService.delete(id);
+    if (!deleted) throw new NotFoundException('Idea not found');
+    return { success: true };
   }
 
   @Post('images/generate')

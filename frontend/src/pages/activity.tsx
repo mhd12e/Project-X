@@ -5,14 +5,9 @@ import {
   AlertTriangle,
   BarChart3,
   Clock,
-  Bot,
-  Brain,
-  MessageSquare,
-  Search,
-  Shield,
-  Server,
   RefreshCw,
 } from 'lucide-react';
+import { CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_LABELS } from '@/lib/activity-config';
 import {
   AreaChart,
   Area,
@@ -59,34 +54,6 @@ import {
   type ActivityLevel,
 } from '@/store/activity.slice';
 import { useActivityStream } from '@/hooks/use-activity-stream';
-
-const CATEGORY_COLORS: Record<string, string> = {
-  auth: '#3C3D37',
-  knowledge: '#697565',
-  chat: '#8B9A82',
-  retrieval: '#ECDFCC',
-  agent: '#181C14',
-  content: '#5A6B55',
-  system: '#64748b',
-};
-
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  auth: Shield,
-  knowledge: Brain,
-  chat: MessageSquare,
-  retrieval: Search,
-  agent: Bot,
-  system: Server,
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  auth: 'Auth',
-  knowledge: 'Knowledge',
-  chat: 'Chat',
-  retrieval: 'Retrieval',
-  agent: 'Agent',
-  system: 'System',
-};
 
 const LEVEL_STYLES: Record<string, string> = {
   info: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',

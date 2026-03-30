@@ -39,6 +39,7 @@ import { ConversationSidebar } from '@/components/conversation/conversation-side
 import { MessageBubble } from '@/components/conversation/message-bubble';
 import { StreamingBubble } from '@/components/conversation/streaming-bubble';
 import { ChatInput } from '@/components/conversation/chat-input';
+import { FullHeightLayout } from '@/components/layout/full-height-layout';
 import type { ContentBlock } from '@/types/content-block';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -160,7 +161,7 @@ export function ContentPage(): React.ReactElement {
 
   const isDone = activities.some((a) => a.type === 'done' || a.type === 'error');
   const showStreamingBubble = segments.length > 0 && !isDone;
-  const isStreaming = convId ? !isDone && (sending || activities.length > 0) : false;
+  const isStreaming = sending;
 
   // Fetch sidebar conversations for the detected type
   useEffect(() => {
@@ -278,8 +279,8 @@ export function ContentPage(): React.ReactElement {
 
   const handleDelete = useCallback(async (id: string) => {
     await dispatch(deleteConversation(id));
-    if (convId === id) navigate('/app/content', { replace: true });
-  }, [dispatch, convId, navigate]);
+    if (convId === id) navigate(isChat ? '/app/chat' : '/app/content', { replace: true });
+  }, [dispatch, convId, navigate, isChat]);
 
   const handleRename = useCallback((id: string, title: string) => {
     dispatch(updateConversation({ id, title }));
@@ -311,7 +312,7 @@ export function ContentPage(): React.ReactElement {
   // ---- Chat-type conversation view ----
   if (isChat) {
     return (
-      <div className="flex -m-6" style={{ height: 'calc(100% + 3rem)' }}>
+      <FullHeightLayout>
         <Meta title={activeConversation?.title ? `${activeConversation.title} — Chat` : 'Chat'} />
 
         {/* Sidebar */}
@@ -368,13 +369,13 @@ export function ContentPage(): React.ReactElement {
             placeholder={hasMessages ? 'Reply...' : 'Ask anything...'}
           />
         </div>
-      </div>
+      </FullHeightLayout>
     );
   }
 
   // ---- Content-type conversation view ----
   return (
-    <div className="flex -m-6" style={{ height: 'calc(100% + 3rem)' }}>
+    <FullHeightLayout>
       <Meta title={activeConversation?.title ? `${activeConversation.title} — Content` : 'Content'} />
 
       {/* Sidebar */}
@@ -490,7 +491,7 @@ export function ContentPage(): React.ReactElement {
           </div>
         )}
       </div>
-    </div>
+    </FullHeightLayout>
   );
 }
 

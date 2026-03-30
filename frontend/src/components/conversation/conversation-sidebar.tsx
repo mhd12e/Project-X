@@ -11,7 +11,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeDate } from '@/lib/utils';
 import type { Conversation } from '@/store/conversation.slice';
 
 interface ConversationSidebarProps {
@@ -23,20 +23,6 @@ interface ConversationSidebarProps {
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onTogglePin: (id: string, isPinned: boolean) => void;
-}
-
-function formatRelativeDate(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export function ConversationSidebar({

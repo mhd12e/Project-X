@@ -12,6 +12,7 @@ import {
 } from '@/store/conversation.slice';
 import { ConversationSidebar } from '@/components/conversation/conversation-sidebar';
 import { ChatInput } from '@/components/conversation/chat-input';
+import { FullHeightLayout } from '@/components/layout/full-height-layout';
 
 function WelcomeScreen() {
   return (
@@ -89,7 +90,7 @@ export function ChatPage(): React.ReactElement {
   }, [dispatch]);
 
   return (
-    <div className="flex -m-6" style={{ height: 'calc(100% + 3rem)' }}>
+    <FullHeightLayout>
       <Meta title="Chat" />
 
       {/* Sidebar */}
@@ -122,6 +123,6 @@ export function ChatPage(): React.ReactElement {
           placeholder="Ask anything..."
         />
       </div>
-    </div>
+    </FullHeightLayout>
   );
 }

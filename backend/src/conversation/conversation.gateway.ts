@@ -92,18 +92,58 @@ export class ConversationGateway
 
     this.logger.debug(`Replaying active generation for ${conversationId} to ${client.id}`);
 
-    for (const act of gen.activities) {
-      client.emit('conversation:stream', {
-        conversationId,
-        type: act.type as StreamEvent['type'],
-        toolName: act.toolName as string | undefined,
-        toolInput: act.toolInput as string | undefined,
-        description: act.description as string | undefined,
-        idea: act.idea as StreamEvent['idea'] | undefined,
-        timestamp: Date.now(),
-      } satisfies StreamEvent);
+    // Replay from blocks (which contain the authoritative state including toolResult)
+    for (const block of gen.blocks) {
+      if (block.type === 'tool_call') {
+        client.emit('conversation:stream', {
+          conversationId,
+          type: 'tool_call',
+          toolName: block.toolName,
+          toolInput: block.toolInput,
+          description: block.description,
+          timestamp: Date.now(),
+        } satisfies StreamEvent);
+        // If the tool already has a result, send it immediately
+        if (block.toolResult) {
+          client.emit('conversation:stream', {
+            conversationId,
+            type: 'tool_result',
+            toolName: block.toolName,
+            toolResult: block.toolResult,
+            timestamp: Date.now(),
+          } satisfies StreamEvent);
+        }
+      } else if (block.type === 'thinking') {
+        client.emit('conversation:stream', {
+          conversationId,
+          type: 'thinking',
+          content: block.text,
+          timestamp: Date.now(),
+        } satisfies StreamEvent);
+      } else if (block.type === 'source') {
+        client.emit('conversation:stream', {
+          conversationId,
+          type: 'source',
+          source: {
+            documentId: block.documentId,
+            sourceFile: block.sourceFile,
+            section: block.section,
+            topic: block.topic,
+            score: block.score,
+          },
+          timestamp: Date.now(),
+        } satisfies StreamEvent);
+      } else if (block.type === 'idea_generated') {
+        client.emit('conversation:stream', {
+          conversationId,
+          type: 'idea_generated',
+          idea: { id: block.ideaId, title: block.title, description: block.description, category: block.category },
+          timestamp: Date.now(),
+        } satisfies StreamEvent);
+      }
     }
 
+    // Replay accumulated text as a single delta
     if (gen.text) {
       client.emit('conversation:stream', {
         conversationId,
